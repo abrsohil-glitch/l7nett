@@ -895,13 +895,14 @@ def change_ascii_menu():
         print(f"\n  Invalid input")
         time.sleep(1)
 
-def proxy_settings():
+async def proxy_settings():
     global proxies_enabled
     clear_screen()
     print(f"{current_color}{BOLD}╔══ PROXY SETTINGS ══╗{RESET}\n")
     print(f"  Proxies: {'Enabled' if proxies_enabled else 'Disabled'}")
     async with proxy_lock:
-        print(f"  Proxies loaded: {len(proxy_list)}")
+        count = len(proxy_list)
+    print(f"  Proxies loaded: {count}")
     print("\n  Options:")
     print("  [1] Toggle proxies on/off")
     print("  [2] Refresh proxy list now (fetch from web)")
@@ -939,7 +940,14 @@ def proxy_settings():
                     new_proxies.append(f"http://{line}")  # assume HTTP
             async with proxy_lock:
                 proxy_list.extend(new_proxies)
-                proxy_list = list(set(proxy_list))  # deduplicate
+                # deduplicate
+                unique = []
+                seen = set()
+                for p in proxy_list:
+                    if p not in seen:
+                        seen.add(p)
+                        unique.append(p)
+                proxy_list[:] = unique
             print(f"  Loaded {len(new_proxies)} proxies from {file}.")
         except Exception as e:
             print(f"  Error loading proxies: {e}")
@@ -955,33 +963,24 @@ def main():
         if choice in ["0", "q", "exit"]:
             print(f"\n{current_color}Session ended.{RESET}\n")
             break
-
         elif choice == "1":
             asyncio.run(run_load_test())
-
         elif choice == "2":
             test_config_screen()
-
         elif choice == "3":
             color_screen()
-
         elif choice == "4":
             view_test_agents()
-            
         elif choice == "5":
             plan_and_license()
-            
         elif choice == "6":
             change_ascii_menu()
-            
         elif choice == "7":
             clear_screen()
             print(f"\033[2J\033[H")
             time.sleep(0.3)
-
         elif choice == "8":
-            proxy_settings()
-
+            asyncio.run(proxy_settings())
         else:
             print(f"  Invalid selection.")
             time.sleep(1)
