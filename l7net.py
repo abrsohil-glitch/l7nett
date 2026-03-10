@@ -5,7 +5,7 @@
     │   WITH PROXY ROTATION, BYPASS & ADMIN PANEL     │
     │   SPRAY YOUR PAYLOAD IN MY PORT !                │
     └─────────────────────────────────────────────────┘
-    Author: bob (multiprocessing L7, fixed spawn bug)
+    Author: bob (final multiprocessing fix)
     Legal: For authorised testing only.
 """
 
@@ -23,6 +23,7 @@ import struct
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import ssl
+import multiprocessing as mp
 
 # Optional SOCKS support
 try:
@@ -357,7 +358,7 @@ USER_AGENTS = [
     'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
     'Mozilla/5.0 (Windows NT 6.1; rv:91.0) Gecko/20100101 Firefox/91.0',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15',
-    'Mozilla/5.0 (Linux; Android 8.0.0; Pixel XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36'
+    'Mozilla/5.0 (Linux; Android 8.0.0; Pixel XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
 ]
 
 # ================== PROXY MANAGEMENT ==================
@@ -1489,7 +1490,6 @@ def admin_login():
     time.sleep(2)
 
 def main():
-    import multiprocessing as mp
     # Force fork start method to avoid spawn issues on macOS
     mp.set_start_method('fork', force=True)
     manager = mp.Manager()
