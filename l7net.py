@@ -5,7 +5,7 @@
     │   WITH PROXY ROTATION, BYPASS & ADMIN PANEL     │
     │   SPRAY YOUR PAYLOAD IN MY PORT !                │
     └─────────────────────────────────────────────────┘
-    Author: bob (admin-only file proxies, public optional)
+    Author: bob (added bandwidth display for L4)
     Legal: For authorised testing only.
 """
 
@@ -735,6 +735,16 @@ async def run_layer7_mp(url, method, total_workers, duration, plan_name, req_cou
             p.join()
 
 # ================== LAYER 4 WORKERS ==================
+# Typical packet sizes (bytes) for bandwidth estimation
+PACKET_SIZE = {
+    'TCP SYN FLOOD': 40,      # IP + TCP header (no options)
+    'UDP FLOOD': 1024,        # typical large UDP payload
+    'ICMP FLOOD': 64,         # standard ping packet size
+    'SLOWLORIS': 150,         # approximate (partial HTTP request)
+    'CONNECTION EXHAUSTION': 40, # just TCP SYN (like SYN flood)
+    'PORT SCAN & ATTACK': 40, # SYN packets during scan
+}
+
 def tcp_syn_flood_worker(target_ip, target_port, worker_id, end_time, req_counter, err_counter, ports_hit_list):
     if not HAS_SCAPY:
         return
@@ -889,6 +899,16 @@ async def run_layer4_attack(target_ip, method, workers, duration, plan_name, req
                 ports_hit = len(set(ports_hit_list))
                 rps = reqs / elapsed if elapsed > 0 else 0
                 
+                # Estimate bandwidth
+                pkt_size = PACKET_SIZE.get(method, 512)  # default 512 bytes if unknown
+                bps = reqs * pkt_size * 8 / elapsed if elapsed > 0 else 0
+                if bps > 1e9:
+                    bw = f"{bps/1e9:.2f} Gbps"
+                elif bps > 1e6:
+                    bw = f"{bps/1e6:.2f} Mbps"
+                else:
+                    bw = f"{bps/1e3:.2f} Kbps"
+                
                 clear_screen()
                 print(f"{current_color}{BOLD}╔══ LAYER 4 ATTACK IN PROGRESS ══╗{RESET}\n")
                 print(f"{current_color}  Plan: {RESET}{plan_name}")
@@ -902,6 +922,7 @@ async def run_layer4_attack(target_ip, method, workers, duration, plan_name, req
                 print(f"    Packets Sent: {reqs:,}")
                 print(f"    Errors: {errs:,}")
                 print(f"    PPS: {rps:.2f}")
+                print(f"    Bandwidth: {bw}")
                 print(f"    Active Connections: {conns:,}")
                 print(f"    Ports Hit: {ports_hit}")
                 await asyncio.sleep(1)
@@ -1255,7 +1276,17 @@ def reconnaissance_menu(req_counter, err_counter, ports_hit_list, conn_counter):
                     errs = err_counter.value
                     ports_hit = len(set(ports_hit_list))
                     rps = reqs / elapsed if elapsed > 0 else 0
-                    print(f"\r{current_color}[{elapsed:.1f}s] Packets: {reqs:,} | Errors: {errs:,} | PPS: {rps:.2f} | Ports Hit: {ports_hit}{RESET}", end="", flush=True)
+                    
+                    pkt_size = PACKET_SIZE.get(method, 512)
+                    bps = reqs * pkt_size * 8 / elapsed if elapsed > 0 else 0
+                    if bps > 1e9:
+                        bw = f"{bps/1e9:.2f} Gbps"
+                    elif bps > 1e6:
+                        bw = f"{bps/1e6:.2f} Mbps"
+                    else:
+                        bw = f"{bps/1e3:.2f} Kbps"
+                    
+                    print(f"\r{current_color}[{elapsed:.1f}s] Packets: {reqs:,} | Errors: {errs:,} | PPS: {rps:.2f} | BW: {bw} | Ports Hit: {ports_hit}{RESET}", end="", flush=True)
                     time.sleep(1)
                 print()
             except KeyboardInterrupt:
